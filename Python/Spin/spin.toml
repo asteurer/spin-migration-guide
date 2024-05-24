@@ -1,0 +1,37 @@
+spin_manifest_version = 2
+
+[application]
+authors = ["Andrew Steurer <andrew.steurer@fermyon.com>"]
+description = ""
+name = "Spin"
+version = "0.1.0"
+
+[variables]
+aws_access_key_id = { required = true, secret = true }
+aws_secret_access_key = { required = true, secret = true }
+# The session token is optional
+aws_session_token = { required = true, secret = true }
+aws_default_region = { required = true }
+aws_service = { required = true }
+aws_host = { required = true }
+
+[[trigger.http]]
+route = "/..."
+component = "spin"
+
+[component.spin]
+source = "app.wasm"
+allowed_outbound_hosts = ["http://{{ aws_host }}"]
+
+[component.spin.build]
+command = "componentize-py -w spin-http componentize main -o app.wasm"
+watch = ["*.py", "requirements.txt"]
+
+[component.spin.variables]
+aws_access_key_id = "{{ aws_access_key_id }}"
+aws_secret_access_key = "{{ aws_secret_access_key }}"
+# The session token is optional
+aws_session_token = "{{ aws_session_token }}"
+aws_default_region = "{{ aws_default_region }}"
+aws_service = "{{ aws_service }}"
+aws_host = "{{ aws_host }}"
