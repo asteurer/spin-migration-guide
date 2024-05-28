@@ -81,25 +81,25 @@ While the Spin app is running, open a new terminal window and try running the co
 #### List bucket objects:
 
 ```bash
-curl http:127.0.0.1:3000
+curl http://127.0.0.1:3000
 ```
 
 #### Get bucket object:
 
 ```bash
-curl -o file_name.extension -H 'uri-path: path/to/file' http://127.0.0.1:3000
+curl -o file_name.extension -H 'uri-path: s3/file/path' http://127.0.0.1:3000
 ```
 
 #### Delete bucket object:
 
 ```bash
-curl --request DELETE -H 'uri-path: path/to/file' http://127.0.0.1:3000
+curl --request DELETE -H 'uri-path: s3/file/path' http://127.0.0.1:3000
 ```
 
 #### Place object into bucket:
 
 ```bash
-curl --request PUT -H 'uri-path: path/to/file' --data @/path/to/file http://127.0.0.1:3000
+curl --request PUT -H 'uri-path: s3/file/path' --data-binary @/path/to/file http://127.0.0.1:3000
 ```
 
 Documention of S3 actions: https://docs.aws.amazon.com/AmazonS3/latest/API/API_Operations.html

@@ -6,27 +6,32 @@ version = "0.1.0"
 authors = ["Andrew Steurer <andrew.steurer@fermyon.com>"]
 description = ""
 
+[variables]
+aws_access_key_id = { required = true, secret = true }
+aws_secret_access_key = { required = true, secret = true }
+# The session token is optional
+aws_session_token = { required = true, secret = true }
+aws_default_region = { required = true }
+aws_service = { required = true }
+aws_host = { required = true }
+
 [[trigger.http]]
 route = "/..."
 component = "spin"
 
-[variables]
-access_key_id = { required = true, secret = true }
-secret_access_key = { required = true, secret = true }
-session_token = { required = true, secret = true }
-bucket_name = { required = true }
-
 [component.spin]
 source = "main.wasm"
-allowed_outbound_hosts = []
+allowed_outbound_hosts = ["http://{{ aws_host }}"]
 
 [component.spin.build]
-#command = "tinygo build -target=wasi -gc=leaking -no-debug -o main.wasm main.go"
-command = "GOOS=wasip1 GOARCH=wasm go build -o main.wasm main.go"
+command = "tinygo build -target=wasi -gc=leaking -no-debug -o main.wasm main.go"
 watch = ["**/*.go", "go.mod"]
 
 [component.spin.variables]
-access_key_id = "{{ access_key_id }}"
-secret_access_key = "{{ secret_access_key }}"
-session_token = "{{ session_token }}"
-bucket_name = "{{ bucket_name }}"
+aws_access_key_id = "{{ aws_access_key_id }}"
+aws_secret_access_key = "{{ aws_secret_access_key }}"
+# The session token is optional
+aws_session_token = "{{ aws_session_token }}"
+aws_default_region = "{{ aws_default_region }}"
+aws_service = "{{ aws_service }}"
+aws_host = "{{ aws_host }}"

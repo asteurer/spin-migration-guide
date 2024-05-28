@@ -1,21 +1,102 @@
-# AWS Lambda to Spin Migration
+# Overview
 
-## Purpose
-This project demonstrates a migration path from AWS Lambda running Golang to Spin. The aim is to showcase the process and steps involved in moving serverless applications from AWS Lambda to a Spin environment.
+# AWS
 
-## Prerequisites
-- Because the image is being build directly in docker, there is no need to install dependencies.
+## Requirements
 
-## Setup
+## Usage
 
-### Environment Variables
-To streamline the build process, a `script.sh` file is provided. You will need to create a `.env` file in the same directory as `script.sh` and fill in the required environment variables:
+### Creating the terraform.tfvars file:
+
+### Building the application:
+
+
+# Spin
+
+## Requirements
+
+- Latest version of Spin: https://developer.fermyon.com/spin/v2/install
+- Go 1.22
+- Tinygo 0.31
+    - To install Tinygo, run the following commands: 
+        ```bash
+        wget https://github.com/tinygo-org/tinygo/releases/download/v0.31.2/tinygo_0.31.2_amd64.deb
+        dpkg -i tinygo_0.31.2_amd64.deb
+        export PATH=$PATH:/usr/local/bin
+
+        ```
+
+
+## Usage
+
+This example will show how to interact with S3. See https://docs.aws.amazon.com for API information for other AWS services.
+
+### Creating the .env file:
+
+In the same directory as the code files, create a `.env` file with the below variables: 
 
 ```dotenv
-DOCKERHUB_USER=your_dockerhub_username
-DOCKERHUB_PASSWORD=your_dockerhub_password
-IMAGE_TAG=your_image_tag
-access_key_id=your_aws_access_key_id
-secret_access_key=your_aws_secret_access_key
-session_token=your_aws_session_token
-bucket_name=your_s3_bucket_name
+SPIN_VARIABLE_AWS_ACCESS_KEY_ID=access-key-id
+SPIN_VARIABLE_AWS_SECRET_ACCESS_KEY=secret-access-key
+# Keep in mind, if your AWS account doesn't require MFA to access its resources, you may not need a session token. 
+SPIN_VARIABLE_AWS_SESSION_TOKEN=session-token
+# Example region
+SPIN_VARIABLE_AWS_DEFAULT_REGION=us-west-2
+# Example service
+SPIN_VARIABLE_AWS_SERVICE=s3
+# Note the port number at the end of the host
+SPIN_VARIABLE_AWS_HOST=your-bucket-name.s3.us-west-2.amazonaws.com:80
+```
+
+Notice that the environment variables are formatted `SPIN_VARIABLE_UPPERCASE_VARIABLE_NAME`. This is the format required by Spin to read environment variables properly. As can be seen in the `spin.toml` file, the Spin application accesses the variables as `lowercase_variable_name`. 
+
+
+### Building and running the application:
+
+Once the .env is created, export the environment variables, build a virtual environment, install the dependencies, and then run the Spin application. 
+
+Example commands for Debian Linux:
+
+```bash
+# Exporting the variables
+set -a
+source .env
+set +a
+
+# Installing dependencies
+go mod download
+
+# Building and running the Spin application
+spin up --build
+```
+
+
+### Interacting with the application:
+
+While the Spin app is running, open a new terminal window and try running the commands below:
+
+#### List bucket objects:
+
+```bash
+curl http://127.0.0.1:3000
+```
+
+#### Get bucket object:
+
+```bash
+curl -o file_name.extension -H 'uri-path: s3/file/path' http://127.0.0.1:3000
+```
+
+#### Delete bucket object:
+
+```bash
+curl --request DELETE -H 'uri-path: s3/file/path' http://127.0.0.1:3000
+```
+
+#### Place object into bucket:
+
+```bash
+curl --request PUT -H 'uri-path: s3/file/path' --data-binary @/path/to/file http://127.0.0.1:3000
+```
+
+Documention of S3 actions: https://docs.aws.amazon.com/AmazonS3/latest/API/API_Operations.html

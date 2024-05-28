@@ -67,8 +67,8 @@ def build_headers(headers: dict) -> tuple:
 
 # The numbered functions below correspond to the 'Calculating a Signature' image in the article linked here: https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html
 # 1. Canonical Request
-def get_canonical_request(http_verb: str, canonical_uri: str, canonical_query_string: str, canonical_headers: str, signed_headers: str, unsigned_payload: str) -> str:
-    return '\n'.join([http_verb, canonical_uri, canonical_query_string, canonical_headers, signed_headers, unsigned_payload])
+def get_canonical_request(http_verb: str, canonical_uri: str, canonical_query_string: str, canonical_headers: str, signed_headers: str, unsigned_payload_hash: str) -> str:
+    return '\n'.join([http_verb, canonical_uri, canonical_query_string, canonical_headers, signed_headers, unsigned_payload_hash])
 
 
 # 2. StringToSign
@@ -156,8 +156,10 @@ class IncomingHandler(IncomingHandler):
 
         # In the case of S3, the URI path is the S3 object's prefix + key.
         uri_path = request.headers.get('uri-path', '')
-        query_params = request.headers.get('query-params', {})
-        headers = request.headers.get('headers', {})
+        # If necessary, add query parameters: 'query_params[key] = value'
+        query_params = {}
+        # If necessary, add extra headers: 'headers[key] = value'
+        headers = {}
 
         payload = request.body
         if payload is None:
