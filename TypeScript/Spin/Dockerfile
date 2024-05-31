@@ -1,15 +1,15 @@
-FROM asteurer/go_spin
+FROM asteurer/javascript_spin
 
-COPY main.go main.go
-COPY go.mod go.mod
-COPY go.sum go.sum
+COPY /src /src
+COPY package.json package.json
 COPY spin.toml spin.toml
-
-RUN go mod download
+COPY webpack.config.js webpack.config.js
 
 ARG DOCKERHUB_USER
 ARG DOCKERHUB_PASSWORD
 ARG IMAGE_TAG
+
+RUN npm install
 
 RUN spin build
 RUN spin registry login index.docker.io -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASSWORD}

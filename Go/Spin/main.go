@@ -40,34 +40,35 @@ func init() {
 		// If necessary, add extra headers: 'headers[key] = value'
 		headers := make(map[string]string)
 
-		// TODO: Testing
-		fmt.Printf("Payload size: %d bytes\n", len(payloadBytes))
-
-		resp, err := sendAwsHttpRequest(r.Method, config.host, uriPath, queryParams, headers, bytes.NewReader(payloadBytes), len(payloadBytes))
+		req, err := buildAwsHttpRequest(r.Method, config.host, uriPath, queryParams, headers, bytes.NewReader(payloadBytes), len(payloadBytes))
 		if err != nil {
-			fmt.Println("Error sending request:", err)
-			http.Error(w, "Internal Server Error Occurred", http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("failed to create outbound http request: %s", err.Error()), http.StatusInternalServerError)
 			return
 		}
-		defer resp.Body.Close()
+
+		resp, err := sendHttpRequest(req)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to execute outbound http request: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		if resp.StatusCode != http.StatusOK {
+			http.Error(w, fmt.Sprintf("response from outbound http request is not OK %v", resp.Status), http.StatusInternalServerError)
+			return
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to read outbound http response: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		if len(body) == 0 {
+			http.Error(w, fmt.Sprintf("outbound http response was empty\n"), http.StatusInternalServerError)
+			return
+		}
 
 		// Set the status code from the response
 		w.WriteHeader(resp.StatusCode)
-
-		// Set the headers from the response
-		for key, values := range resp.Header {
-			for _, value := range values {
-				w.Header().Add(key, value)
-			}
-		}
-
-		// Write the response body
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			fmt.Println("Error reading response:", err)
-			http.Error(w, "Internal Server Error Occurred", http.StatusInternalServerError)
-			return
-		}
 		w.Write(body)
 	})
 }
@@ -132,6 +133,20 @@ func initConfig() error {
 	return nil
 }
 
+func sendHttpRequest(req *http.Request) (*http.Response, error) {
+	sender, _ := variables.Get("sender")
+	switch sender {
+	case "http.DefaultClient.Do":
+		return http.DefaultClient.Do(req)
+	case "":
+		fallthrough
+	case "spinhttp.Send":
+		fallthrough
+	default:
+		return spinhttp.Send(req)
+	}
+}
+
 func buildHeaderStrings(headers http.Header, queryParams map[string]string) (string, string, string) {
 	// Building canonical and signed headers
 	headerKeys := make([]string, 0, len(headers))
@@ -168,14 +183,16 @@ func buildHeaderStrings(headers http.Header, queryParams map[string]string) (str
 	return canonicalHeaders, signedHeaders, canonicalQueryString
 }
 
-func sendAwsHttpRequest(httpVerb, host, uriPath string, queryParams, headers map[string]string, payload io.Reader, contentLength int) (*http.Response, error) {
+func buildAwsHttpRequest(httpVerb, host, uriPath string, queryParams, headers map[string]string, payload io.Reader, contentLength int) (*http.Request, error) {
 	if uriPath == "" || uriPath[0] != '/' {
 		uriPath = "/" + uriPath
 	}
-	destinationUrl := "http://" + host + uriPath
+
+	destinationUrl := fmt.Sprintf("http://%s%s", host, uriPath)
+
 	req, err := http.NewRequest(httpVerb, destinationUrl, payload)
 	if err != nil {
-		return &http.Response{}, err
+		return nil, fmt.Errorf("failed to create new request: %w", err)
 	}
 
 	now := time.Now().UTC()
@@ -186,9 +203,14 @@ func sendAwsHttpRequest(httpVerb, host, uriPath string, queryParams, headers map
 		req.Header.Set(strings.ToLower(key), value)
 	}
 
+	payloadHash := hash(payload)
+	if payloadHash == "" {
+		return nil, fmt.Errorf("failed to generate hash for payload")
+	}
+
 	req.Header.Set("host", host)
 	req.Header.Set("x-amz-date", now.Format("20060102T150405Z"))
-	req.Header.Set("x-amz-content-sha256", hash(payload))
+	req.Header.Set("x-amz-content-sha256", payloadHash)
 	req.Header.Set("content-length", fmt.Sprintf("%d", contentLength))
 	// sessionToken is optional
 	if config.sessionToken != "" {
@@ -202,7 +224,7 @@ func sendAwsHttpRequest(httpVerb, host, uriPath string, queryParams, headers map
 
 	delete(headers, "host")
 
-	return spinhttp.Send(req)
+	return req, nil
 }
 
 func getAuthorizationHeader(now time.Time, canonicalRequest, signedHeaders string) string {

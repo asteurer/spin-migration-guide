@@ -22,6 +22,7 @@ component = "spin"
 [component.spin]
 source = "main.wasm"
 allowed_outbound_hosts = ["http://{{ aws_host }}"]
+# allowed_outbound_hosts = ["http://localhost:4000"]
 
 [component.spin.build]
 command = "tinygo build -target=wasi -gc=leaking -no-debug -o main.wasm main.go"
@@ -35,3 +36,4 @@ aws_session_token = "{{ aws_session_token }}"
 aws_default_region = "{{ aws_default_region }}"
 aws_service = "{{ aws_service }}"
 aws_host = "{{ aws_host }}"
+# aws_host = "localhost:4000"

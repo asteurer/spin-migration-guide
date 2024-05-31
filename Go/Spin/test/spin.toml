@@ -1,0 +1,21 @@
+spin_manifest_version = 2
+
+[application]
+name = "tinygo-http-client"
+version = "0.1.0"
+authors = ["Justin Pflueger <justin.pflueger@fermyon.com>"]
+description = "An example using the default http client in spin & tinygo"
+
+[variables]
+sender = { default = "spinhttp.Send" }
+
+[[trigger.http]]
+route = "/..."
+component = "tinygo-http-client"
+
+[component.tinygo-http-client]
+source = "main.wasm"
+allowed_outbound_hosts = ["https://api.restful-api.dev"]
+[component.tinygo-http-client.build]
+command = "tinygo build -target=wasi -gc=leaking -no-debug -o main.wasm main.go"
+watch = ["**/*.go", "go.mod"]

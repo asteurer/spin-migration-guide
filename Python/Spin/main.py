@@ -58,9 +58,9 @@ def build_headers(headers: dict) -> tuple:
     for key in sorted(headers.keys()):
         canonical_headers += f"{key.lower()}:{headers[key]}\n"
         if not signed_headers:
-            signed_headers += key
+            signed_headers += key.lower()
         else:
-            signed_headers += f";{key}"
+            signed_headers += f";{key.lower()}"
     
     return (canonical_headers, signed_headers)
 
