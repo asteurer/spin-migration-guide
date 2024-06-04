@@ -21,8 +21,8 @@ component = "spin"
 
 [component.spin]
 source = "app.wasm"
-# allowed_outbound_hosts = ["http://{{ aws_host }}"]
-allowed_outbound_hosts = ["http://localhost:4000"]
+allowed_outbound_hosts = ["http://{{ aws_host }}"]
+# allowed_outbound_hosts = ["http://localhost:4000"]
 
 
 [component.spin.build]
@@ -36,5 +36,5 @@ aws_secret_access_key = "{{ aws_secret_access_key }}"
 aws_session_token = "{{ aws_session_token }}"
 aws_default_region = "{{ aws_default_region }}"
 aws_service = "{{ aws_service }}"
-# aws_host = "{{ aws_host }}"
-aws_host = "localhost:4000"
+aws_host = "{{ aws_host }}"
+# aws_host = "localhost:4000"

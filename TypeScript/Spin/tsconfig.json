@@ -3,10 +3,13 @@
         "outDir": "./dist/",
         "noImplicitAny": true,
         "module": "es6",
-        "target": "es5",
+        "target": "es2020",
         "jsx": "react",
         "skipLibCheck": true,
-        "lib": ["ES2017", "dom"],
+        "lib": [
+            "ES2015",
+            "WebWorker"
+        ],
         "allowJs": true,
         "strict": true,
         "noImplicitReturns": true,

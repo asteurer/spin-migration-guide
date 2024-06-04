@@ -38,12 +38,12 @@ class AWSConfig:
   
 
 # Encodes a string to bytes using UTF-8 encoding, suitable for HTTP transmission
-def encode(string: str) -> str:
+def encode(string: str) -> bytes:
     return string.encode('utf-8')
 
 
 # In order to verify that the payload wasn't altered, it is necessary to create a hash of the payload
-def hash(payload) -> str:
+def hash(payload: str|bytes) -> str:
     if isinstance(payload, str):
         payload = encode(payload)
     return hashlib.sha256(payload).hexdigest()
@@ -81,7 +81,7 @@ def get_string_to_sign(canonical_request: str, now: datetime.datetime) -> str:
 
 # 3. Signature
 def get_signature(string_to_sign: str, now: datetime.datetime) -> str:
-    def sign(key, msg):
+    def sign(key: bytes, msg: bytes) -> bytes:
         return hmac.new(key, encode(msg), hashlib.sha256).digest()
 
     date_key = sign(encode('AWS4'+config.secret_access_key), now.strftime('%Y%m%d'))
@@ -120,7 +120,7 @@ def send_aws_http_request(http_verb: str, host: str, uri_path='/', query_params=
     if config.session_token:
         headers['x-amz-security-token'] = config.session_token
 
-    canonical_query_string = "&".join([key + '= ' + query_params[key] for key in sorted(query_params.keys())])
+    canonical_query_string = "&".join([key + '=' + query_params[key] for key in sorted(query_params.keys())])
     canonical_headers, signed_headers = build_headers(headers)
     canonical_request = get_canonical_request(http_verb, uri_path, canonical_query_string, canonical_headers, signed_headers, headers['x-amz-content-sha256'])
 
@@ -131,6 +131,11 @@ def send_aws_http_request(http_verb: str, host: str, uri_path='/', query_params=
     del headers['host']
 
     return send(Request(http_verb, f"http://{host}{uri_path}", headers, payload))
+
+def getS3Object():
+    # TEST
+    return None
+
 
 
 class IncomingHandler(IncomingHandler):

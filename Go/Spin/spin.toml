@@ -13,7 +13,6 @@ aws_secret_access_key = { required = true, secret = true }
 aws_session_token = { required = true, secret = true }
 aws_default_region = { required = true }
 aws_service = { required = true }
-aws_host = { required = true }
 
 [[trigger.http]]
 route = "/..."
@@ -21,8 +20,7 @@ component = "spin"
 
 [component.spin]
 source = "main.wasm"
-allowed_outbound_hosts = ["http://{{ aws_host }}"]
-# allowed_outbound_hosts = ["http://localhost:4000"]
+allowed_outbound_hosts = ["https://{{ aws_service }}.{{ aws_default_region }}.amazonaws.com", "http://localhost:4000"]
 
 [component.spin.build]
 command = "tinygo build -target=wasi -gc=leaking -no-debug -o main.wasm main.go"
@@ -34,6 +32,4 @@ aws_secret_access_key = "{{ aws_secret_access_key }}"
 # The session token is optional
 aws_session_token = "{{ aws_session_token }}"
 aws_default_region = "{{ aws_default_region }}"
-aws_service = "{{ aws_service }}"
-aws_host = "{{ aws_host }}"
-# aws_host = "localhost:4000"
+aws_service = "{{ aws_service }}" 

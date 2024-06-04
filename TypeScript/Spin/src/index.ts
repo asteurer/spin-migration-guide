@@ -1,11 +1,4 @@
-// Convert to typescript
-
-import { Config, HttpRequest, HttpResponse } from '@fermyon/spin-sdk';
-// TODO: Change to the crypto module as seen here: 
-import * as sha256 from "js-sha256";
-import { TextEncoder } from 'util';
-// import * as crypto from "crypto";
-
+import { Variables, ResponseBuilder } from '@fermyon/spin-sdk';
 
 class AWSConfig {
   accessKeyId: string;
@@ -17,12 +10,21 @@ class AWSConfig {
 
     constructor() {
       // The class variables are initialized using the Spin variable retriever 'Config'.
-      this.accessKeyId = Config.get("aws_access_key_id"); 
-      this.secretAccessKey = Config.get("aws_secret_access_key");
-      this.sessionToken = Config.get("aws_session_token");
-      this.region = Config.get("aws_default_region");
-      this.service = Config.get("aws_service");
-      this.host = Config.get("aws_host");
+      let parseVariable = function(key: string): string {
+        let result: string|null = Variables.get(key)
+        if (typeof result == 'string') {
+          return result;
+        } else {
+          throw new Error(`Unable to parse variable for key '${key}'. Not a string.`)
+        }
+      }
+
+      this.accessKeyId = parseVariable("aws_access_key_id"); 
+      this.secretAccessKey = parseVariable("aws_secret_access_key");
+      this.sessionToken = parseVariable("aws_session_token");
+      this.region = parseVariable("aws_default_region");
+      this.service = parseVariable("aws_service");
+      this.host = parseVariable("aws_host");
     }
 }
 
@@ -65,14 +67,16 @@ function encode(str: string): Uint8Array {
 /**
  * Hashes the given payload using the SHA-256 algorithm into a hex-encoded string.
  */
-function getHash(payload: string|Uint8Array): string {
+
+async function getHash(payload: string | Uint8Array): Promise<string> {
   if (typeof payload == "string") {
     payload = encode(payload);
   }
 
-  let hash = sha256.create()
-  hash.update(payload);
-  return hash.hex();
+  let hashBuffer = await crypto.subtle.digest('SHA-256', payload.buffer);
+  let hashArray = new Uint8Array(hashBuffer);
+  let hashHex = Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
 }
 
 
@@ -116,11 +120,32 @@ function getCanonicalRequest(httpVerb: string, canonicalUri: string, canonicalQu
 /**
  * TODO: Need a better overview for what StringToSign is.
  */
-function getStringToSign(awsConfig: AWSConfig, canonicalRequest: string, now: AWSFormattedDate): string {
-    return "AWS4-HMAC-SHA256\n" +
-           `${now.dateTime}\n` +
-           `${now.date}/${awsConfig.region}/${awsConfig.service}/aws4_request\n` +
-           `${getHash(canonicalRequest)}`; 
+async function getStringToSign(awsConfig: AWSConfig, canonicalRequest: string, now: AWSFormattedDate): Promise<string> {
+  let hashedCanonicalRequest = await getHash(canonicalRequest);
+  console.log("canonical request has been hashed");
+  return (
+    "AWS4-HMAC-SHA256\n" +
+    `${now.dateTime}\n` +
+    `${now.date}/${awsConfig.region}/${awsConfig.service}/aws4_request\n` +
+    hashedCanonicalRequest
+  );
+}
+
+async function createHmac(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
+  console.log("creating the crypto key...");
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    key,
+    {name: "HMAC", hash: "SHA-256"},
+    false,
+    ["sign"]
+  );
+
+  console.log("crypto key has been evaluated")
+
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
+  console.log("hmac signature has been created");
+  return new Uint8Array(signature);
 }
 
 
@@ -129,22 +154,23 @@ function getStringToSign(awsConfig: AWSConfig, canonicalRequest: string, now: AW
  * @param {String} stringToSign - TODO: Come up with a better description.
  * @returns {String} TODO: Come up with a better description.
  */
-function getSignature(awsConfig: AWSConfig, stringToSign: string, now: AWSFormattedDate): string { 
-  let sign = function(key: Uint8Array, msg: string): Uint8Array {
-    let hmac = sha256.hmac.create(key);
-    hmac.update(encode(msg));
-    return hmac.arrayBuffer();
+async function getSignature(awsConfig: AWSConfig, stringToSign: string, now: AWSFormattedDate): Promise<string> {
+  const sign = async (key: Uint8Array, msg: string): Promise<Uint8Array> => {
+    return await createHmac(key, encode(msg));
+  };
+
+  const hexEncode = async (byteArray: Promise<Uint8Array>): Promise<string> => {
+    return Array.from(await byteArray).map(byte => byte.toString(16).padStart(2, '0')).join('')
   }
 
-  let dateKey: Uint8Array = sign(encode(`AWS4${awsConfig.secretAccessKey}`), now.date);
-  let dateRegionKey: Uint8Array = sign(dateKey, awsConfig.region);
-  let dateRegionServiceKey: Uint8Array = sign(dateRegionKey, awsConfig.service);
-  let signingKey: Uint8Array = sign(dateRegionServiceKey, "aws4_request");
+  console.log("beginning signing proces...")
+  const dateKey = await sign(encode(`AWS4${awsConfig.secretAccessKey}`), now.date);
+  const dateRegionKey = await sign(dateKey, awsConfig.region);
+  const dateRegionServiceKey = await sign(dateRegionKey, awsConfig.service);
+  const signingKey = await sign(dateRegionServiceKey, "aws4_request");
+  console.log("signing process is complete");
 
-  let hmac = sha256.hmac.create(signingKey);
-  hmac.update(encode(stringToSign));
-
-  return hmac.hex();
+  return hexEncode(createHmac(signingKey, encode(stringToSign)))
 }
 
 
@@ -156,9 +182,16 @@ function getSignature(awsConfig: AWSConfig, stringToSign: string, now: AWSFormat
  * @param {String} signedHeaders - All headers included in the request.
  * @returns {String}
  */
-function getAuthorizationHeader(awsConfig: AWSConfig, now: AWSFormattedDate, canonicalRequest: string, signedHeaders: string) {
-  let stringToSign: string = getStringToSign(awsConfig, canonicalRequest, now); 
-  let signature: string = getSignature(awsConfig, stringToSign, now);
+async function getAuthorizationHeader(
+  awsConfig: AWSConfig,
+  now: AWSFormattedDate,
+  canonicalRequest: string,
+  signedHeaders: string
+): Promise<string> {
+  const stringToSign = await getStringToSign(awsConfig, canonicalRequest, now);
+  console.log("string to sign has been evaluated");
+  const signature = await getSignature(awsConfig, stringToSign, now);
+  console.log("signature has been evaluated");
 
   return `AWS4-HMAC-SHA256 Credential=${awsConfig.accessKeyId}/${now.date}/${awsConfig.region}/${awsConfig.service}/aws4_request, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 }
@@ -174,72 +207,90 @@ function getAuthorizationHeader(awsConfig: AWSConfig, now: AWSFormattedDate, can
  * @param {ArrayBuffer} payload - The body received from the HTTP request.
  * @returns {Promise<Response>} - The HTTP response from AWS.
  */
-async function sendAwsHttpRequest(httpVerb: string, awsConfig: AWSConfig, uriPath: string, queryParams: Record<string, string>, headers: Record<string, string>, payload: Uint8Array ): HttpResponse {
+async function sendAwsHttpRequest(
+  httpVerb: string,
+  awsConfig: AWSConfig,
+  uriPath: string,
+  queryParams: Record<string, string>,
+  headers: Record<string, string>,
+  payload: Uint8Array
+): Promise<Response> {
   let now = new AWSFormattedDate(new Date());
 
   if (!["GET", "DELETE", "HEAD"].includes(httpVerb) && payload.length == 0) {
     throw new Error(`Please include a payload for request type: ${httpVerb}`);
   }
-  
+
+  console.log("payload evaluated");
+
   if (uriPath == undefined) {
     uriPath = "/";
   } else if (!uriPath.startsWith("/")) {
     uriPath = "/" + uriPath;
   }
 
+  console.log("uriPath evaluated");
+
   headers["host"] = awsConfig.host;
   headers["x-amz-date"] = now.dateTime;
-  headers["x-amz-content-sha256"] = getHash(payload);
+  headers["x-amz-content-sha256"] = await getHash(payload);
+  console.log("host, date, and content have been evaluated");
 
-  // TODO: Check that this doesn't appear as a blank string. 
-  if (!awsConfig.sessionToken) {
+  if (awsConfig.sessionToken) {
     headers["x-amz-security-token"] = awsConfig.sessionToken;
   }
 
-  let {canonicalHeaders, signedHeaders, canonicalQueryString} = buildHeaderStrings(headers, queryParams);
-  let canonicalRequest = getCanonicalRequest(httpVerb, uriPath, canonicalQueryString, canonicalHeaders, signedHeaders, headers["x-amz-content-sha256"]);
+  console.log("security token has been evaluated");
 
-  headers["authorization"] = getAuthorizationHeader(awsConfig, now, canonicalRequest, signedHeaders);
-  
-  // Spin adds a host header, so to avoid a duplicated header error, the host header used to sign the request needs to be deleted.
+  let { canonicalHeaders, signedHeaders, canonicalQueryString } = buildHeaderStrings(headers, queryParams);
+  console.log("headers have been evaluated");
+  let canonicalRequest = getCanonicalRequest(
+    httpVerb,
+    uriPath,
+    canonicalQueryString,
+    canonicalHeaders,
+    signedHeaders,
+    headers["x-amz-content-sha256"]
+  );
+  console.log("canonical request has been evaluated");
+
+  headers["authorization"] = await getAuthorizationHeader(awsConfig, now, canonicalRequest, signedHeaders);
+  console.log("authorization header has been evaluated");
+
   delete headers["host"];
 
   let fetchOptions = {
     method: httpVerb,
     headers: headers,
-    body: payload
-  }
+    body: ["GET", "DELETE", "HEAD"].includes(httpVerb) ? undefined : payload
+  };
 
-  return await fetch(`http://${awsConfig.host}${uriPath}`, fetchOptions);
+  let response = await fetch(`http://${awsConfig.host}${uriPath}`, fetchOptions);
+  
+  return response;
 }
 
 
-export let handleRequest = async function (request: HttpRequest): HttpResponse {
+export async function handler(request: Request, res: ResponseBuilder) {
   let awsConfig: AWSConfig = new AWSConfig();
 
   try {
-    // TODO: Double check that .uriPath works, rather than headers["uriPath"]
+    let payload: Uint8Array = encode(await request.text());
     let queryParams = {};
-    // TODO: Change let to let
     let awsHeaders = {};
-    let response: HttpResponse = await sendAwsHttpRequest(request.method, awsConfig, request.headers.uriPath, queryParams, awsHeaders, request.body);   
-    let body: string = await response.text();
-    let headers: {[key: string]: string} = {};
-    for (let [key, value] of response.headers.entries()) {
-      headers[key] = value;
-    }
-    let status = response.status;
+    let uriHeader = request.headers.get("uriPath");
+    let uriPath: string = typeof uriHeader == 'string' ? uriHeader : "";
+    let response: Response = await sendAwsHttpRequest(request.method, awsConfig, uriPath, queryParams, awsHeaders, payload);
+    console.log("received response");
+
+    res.status(response.status);
+    // TODO: Once Karthik fixes, update this to 'response.headers'
+    res.set(response.headers);
+    res.send(await response.arrayBuffer());
     
-    return {
-      status: status,
-      headers: headers,
-      body: body + "\n"
-    };
   } catch (error) {
-    return {
-      status: 500,
-      headers: {},
-      body: `Error: ${error}\n`
-    };
+    res.status(500);
+    res.set({ 'Content-Type': 'text/plain' });
+    res.send(`Error: ${error}\n`);
   }
-};
+}

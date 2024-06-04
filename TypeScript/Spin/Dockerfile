@@ -4,6 +4,7 @@ COPY /src /src
 COPY package.json package.json
 COPY spin.toml spin.toml
 COPY webpack.config.js webpack.config.js
+COPY tsconfig.json tsconfig.json
 
 ARG DOCKERHUB_USER
 ARG DOCKERHUB_PASSWORD

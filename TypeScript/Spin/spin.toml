@@ -17,19 +17,19 @@ aws_host = { required = true }
 
 [[trigger.http]]
 route = "/..."
-component = "type-script-test"
+component = "typescript-aws"
 
-[component.type-script-aws]
-source = "target/type-script-aws.wasm"
+[component.typescript-aws]
+source = "target/typescript-aws.wasm"
 exclude_files = ["**/node_modules"]
 allowed_outbound_hosts = ["http://{{ aws_host }}"]
 # allowed_outbound_hosts = ["http://localhost:4000"]
 
-[component.type-script-aws.build]
+[component.typescript-aws.build]
 command = "npm run build"
 watch = ["src/**/*.ts", "package.json"]
 
-[component.type-script-aws.variables]
+[component.typescript-aws.variables]
 aws_access_key_id = "{{ aws_access_key_id }}"
 aws_secret_access_key = "{{ aws_secret_access_key }}"
 # The session token is optional
