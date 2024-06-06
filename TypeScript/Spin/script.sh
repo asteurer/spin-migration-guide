@@ -4,6 +4,7 @@ source ../../.env
 set +a
 
 spin up --build
+# spin up
 
 # docker build . \
 #     --build-arg DOCKERHUB_USER=$DOCKERHUB_USER \

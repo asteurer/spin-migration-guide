@@ -46,6 +46,8 @@ SPIN_VARIABLE_AWS_HOST=your-bucket-name.s3.us-west-2.amazonaws.com:80
 
 Notice that the environment variables are formatted `SPIN_VARIABLE_UPPERCASE_VARIABLE_NAME`. This is the format required by Spin to read environment variables properly. As can be seen in the `spin.toml` file, the Spin application accesses the variables as `lowercase_variable_name`. 
 
+Also notice that the host has the port number after. This is important because the signing process will take the characters :80 and radically change the hashes. Because spin adds the host header after the fact, we need to match what spin is adding as a header.
+
 
 ### Building and running the application:
 

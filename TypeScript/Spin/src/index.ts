@@ -117,12 +117,8 @@ function getCanonicalRequest(httpVerb: string, canonicalUri: string, canonicalQu
 }
 
 
-/**
- * TODO: Need a better overview for what StringToSign is.
- */
 async function getStringToSign(awsConfig: AWSConfig, canonicalRequest: string, now: AWSFormattedDate): Promise<string> {
   let hashedCanonicalRequest = await getHash(canonicalRequest);
-  console.log("canonical request has been hashed");
   return (
     "AWS4-HMAC-SHA256\n" +
     `${now.dateTime}\n` +
@@ -132,7 +128,6 @@ async function getStringToSign(awsConfig: AWSConfig, canonicalRequest: string, n
 }
 
 async function createHmac(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
-  console.log("creating the crypto key...");
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
     key,
@@ -141,10 +136,7 @@ async function createHmac(key: Uint8Array, message: Uint8Array): Promise<Uint8Ar
     ["sign"]
   );
 
-  console.log("crypto key has been evaluated")
-
   const signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
-  console.log("hmac signature has been created");
   return new Uint8Array(signature);
 }
 
@@ -163,14 +155,16 @@ async function getSignature(awsConfig: AWSConfig, stringToSign: string, now: AWS
     return Array.from(await byteArray).map(byte => byte.toString(16).padStart(2, '0')).join('')
   }
 
-  console.log("beginning signing proces...")
+  const logHex = (byteArray: Uint8Array): string => {
+    return Array.from(byteArray).map(byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
   const dateKey = await sign(encode(`AWS4${awsConfig.secretAccessKey}`), now.date);
   const dateRegionKey = await sign(dateKey, awsConfig.region);
   const dateRegionServiceKey = await sign(dateRegionKey, awsConfig.service);
   const signingKey = await sign(dateRegionServiceKey, "aws4_request");
-  console.log("signing process is complete");
 
-  return hexEncode(createHmac(signingKey, encode(stringToSign)))
+  return hexEncode(sign(signingKey, stringToSign))
 }
 
 
@@ -189,9 +183,7 @@ async function getAuthorizationHeader(
   signedHeaders: string
 ): Promise<string> {
   const stringToSign = await getStringToSign(awsConfig, canonicalRequest, now);
-  console.log("string to sign has been evaluated");
   const signature = await getSignature(awsConfig, stringToSign, now);
-  console.log("signature has been evaluated");
 
   return `AWS4-HMAC-SHA256 Credential=${awsConfig.accessKeyId}/${now.date}/${awsConfig.region}/${awsConfig.service}/aws4_request, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 }
@@ -217,45 +209,35 @@ async function sendAwsHttpRequest(
 ): Promise<Response> {
   let now = new AWSFormattedDate(new Date());
 
-  if (!["GET", "DELETE", "HEAD"].includes(httpVerb) && payload.length == 0) {
-    throw new Error(`Please include a payload for request type: ${httpVerb}`);
-  }
-
-  console.log("payload evaluated");
-
   if (uriPath == undefined) {
     uriPath = "/";
   } else if (!uriPath.startsWith("/")) {
     uriPath = "/" + uriPath;
   }
 
-  console.log("uriPath evaluated");
+  let payloadHash = await getHash(payload);
 
   headers["host"] = awsConfig.host;
   headers["x-amz-date"] = now.dateTime;
-  headers["x-amz-content-sha256"] = await getHash(payload);
-  console.log("host, date, and content have been evaluated");
+  headers["x-amz-content-sha256"] = payloadHash
+  // TODO: Make this match the payload length
+  headers["content-length"] = String(payload.length);
 
   if (awsConfig.sessionToken) {
     headers["x-amz-security-token"] = awsConfig.sessionToken;
   }
 
-  console.log("security token has been evaluated");
-
   let { canonicalHeaders, signedHeaders, canonicalQueryString } = buildHeaderStrings(headers, queryParams);
-  console.log("headers have been evaluated");
   let canonicalRequest = getCanonicalRequest(
     httpVerb,
     uriPath,
     canonicalQueryString,
     canonicalHeaders,
     signedHeaders,
-    headers["x-amz-content-sha256"]
+    payloadHash
   );
-  console.log("canonical request has been evaluated");
 
   headers["authorization"] = await getAuthorizationHeader(awsConfig, now, canonicalRequest, signedHeaders);
-  console.log("authorization header has been evaluated");
 
   delete headers["host"];
 
@@ -281,7 +263,6 @@ export async function handler(request: Request, res: ResponseBuilder) {
     let uriHeader = request.headers.get("uriPath");
     let uriPath: string = typeof uriHeader == 'string' ? uriHeader : "";
     let response: Response = await sendAwsHttpRequest(request.method, awsConfig, uriPath, queryParams, awsHeaders, payload);
-    console.log("received response");
 
     res.status(response.status);
     // TODO: Once Karthik fixes, update this to 'response.headers'

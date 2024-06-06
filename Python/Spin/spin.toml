@@ -3,7 +3,7 @@ spin_manifest_version = 2
 [application]
 authors = ["Andrew Steurer <andrew.steurer@fermyon.com>"]
 description = ""
-name = "Spin"
+name = "Python AWS"
 version = "0.1.0"
 
 [variables]
@@ -17,24 +17,23 @@ aws_host = { required = true }
 
 [[trigger.http]]
 route = "/..."
-component = "spin"
+component = "python-aws"
 
-[component.spin]
+[component.python-aws]
 source = "app.wasm"
-allowed_outbound_hosts = ["http://{{ aws_host }}"]
-# allowed_outbound_hosts = ["http://localhost:4000"]
+allowed_outbound_hosts = ["http://{{ aws_host }}", "http://localhost:4000"]
 
 
-[component.spin.build]
+[component.python-aws.build]
 command = "componentize-py -w spin-http componentize main -o app.wasm"
 watch = ["*.py", "requirements.txt"]
 
-[component.spin.variables]
+[component.python-aws.variables]
 aws_access_key_id = "{{ aws_access_key_id }}"
 aws_secret_access_key = "{{ aws_secret_access_key }}"
 # The session token is optional
 aws_session_token = "{{ aws_session_token }}"
 aws_default_region = "{{ aws_default_region }}"
 aws_service = "{{ aws_service }}"
-aws_host = "{{ aws_host }}"
-# aws_host = "localhost:4000"
+# aws_host = "{{ aws_host }}"
+aws_host = "localhost:4000"

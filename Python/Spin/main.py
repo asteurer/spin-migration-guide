@@ -37,16 +37,16 @@ class AWSConfig:
     return f"AWSConfig(access_key_id='{self.access_key_id}', secret_access_key='***', session_token='{self.session_token}', region='{self.region}', service='{self.service}')"
   
 
-# Encodes a string to bytes using UTF-8 encoding, suitable for HTTP transmission
+# Encodes a string to bytes using UTF-8 encoding
 def encode(string: str) -> bytes:
     return string.encode('utf-8')
 
 
-# In order to verify that the payload wasn't altered, it is necessary to create a hash of the payload
+# This creates a SHA256 hash of a string/byte array and returns a hex-encoded string
 def hash(payload: str|bytes) -> str:
     if isinstance(payload, str):
         payload = encode(payload)
-    return hashlib.sha256(payload).hexdigest()
+    return hashlib.sha256(payload).digest().hex()
 
 
 # Building the canonical and signed headers
@@ -65,7 +65,7 @@ def build_headers(headers: dict) -> tuple:
     return (canonical_headers, signed_headers)
 
 
-# The numbered functions below correspond to the 'Calculating a Signature' image in the article linked here: https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html
+# The numbered functions below correspond to the 'Calculating a Signature' image in the article linked here: https://docs.aws.amazon.com/IAM/latest/UserGuide/create-signed-request.html
 # 1. Canonical Request
 def get_canonical_request(http_verb: str, canonical_uri: str, canonical_query_string: str, canonical_headers: str, signed_headers: str, unsigned_payload_hash: str) -> str:
     return '\n'.join([http_verb, canonical_uri, canonical_query_string, canonical_headers, signed_headers, unsigned_payload_hash])
@@ -81,7 +81,7 @@ def get_string_to_sign(canonical_request: str, now: datetime.datetime) -> str:
 
 # 3. Signature
 def get_signature(string_to_sign: str, now: datetime.datetime) -> str:
-    def sign(key: bytes, msg: bytes) -> bytes:
+    def sign(key: bytes, msg: str) -> bytes:
         return hmac.new(key, encode(msg), hashlib.sha256).digest()
 
     date_key = sign(encode('AWS4'+config.secret_access_key), now.strftime('%Y%m%d'))
@@ -89,7 +89,7 @@ def get_signature(string_to_sign: str, now: datetime.datetime) -> str:
     date_region_service_key = sign(date_region_key, config.service)
     signing_key = sign(date_region_service_key, 'aws4_request')
 
-    return hmac.new(signing_key, encode(string_to_sign), hashlib.sha256).hexdigest()
+    return sign(signing_key, string_to_sign).hex()
 
 
 def get_authorization_header(now: datetime.datetime, canonical_request: str, signed_headers: str) -> str:
@@ -131,11 +131,6 @@ def send_aws_http_request(http_verb: str, host: str, uri_path='/', query_params=
     del headers['host']
 
     return send(Request(http_verb, f"http://{host}{uri_path}", headers, payload))
-
-def getS3Object():
-    # TEST
-    return None
-
 
 
 class IncomingHandler(IncomingHandler):

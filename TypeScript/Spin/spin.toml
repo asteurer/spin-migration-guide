@@ -22,8 +22,7 @@ component = "typescript-aws"
 [component.typescript-aws]
 source = "target/typescript-aws.wasm"
 exclude_files = ["**/node_modules"]
-allowed_outbound_hosts = ["http://{{ aws_host }}"]
-# allowed_outbound_hosts = ["http://localhost:4000"]
+allowed_outbound_hosts = ["http://{{ aws_host }}", "http://localhost:4000"]
 
 [component.typescript-aws.build]
 command = "npm run build"
