@@ -1,17 +1,6 @@
-# Overview
+## Overview
 
-# AWS
-
-## Requirements
-
-## Usage
-
-### Creating the terraform.tfvars file:
-
-### Building the application:
-
-
-# Spin
+At the moment, Spin does not have support for the AWS SDK. The current workaround is to make HTTP calls to the AWS service endpoints. This demonstrates how to effectively format and sign those HTTP requests.
 
 ## Requirements
 
@@ -26,10 +15,9 @@
 
         ```
 
-
 ## Usage
 
-This example will show how to interact with S3. See https://docs.aws.amazon.com for API information for other AWS services.
+This example will show how to interact with S3. See https://docs.aws.amazon.com for API information on other AWS services.
 
 ### Creating the .env file:
 
@@ -84,19 +72,19 @@ curl http://127.0.0.1:3000
 #### Get bucket object:
 
 ```bash
-curl -o file_name.extension -H 'uri-path: s3/file/path' http://127.0.0.1:3000
+curl -o file_name.extension -H 'x-uri-path: s3/file/path' http://127.0.0.1:3000
 ```
 
 #### Delete bucket object:
 
 ```bash
-curl --request DELETE -H 'uri-path: s3/file/path' http://127.0.0.1:3000
+curl --request DELETE -H 'x-uri-path: s3/file/path' http://127.0.0.1:3000
 ```
 
 #### Place object into bucket:
 
 ```bash
-curl --request PUT -H 'uri-path: s3/file/path' --data-binary @/path/to/file http://127.0.0.1:3000
+curl --request PUT -H 'x-uri-path: s3/file/path' --data-binary @/path/to/file http://127.0.0.1:3000
 ```
 
 Documention of S3 actions: https://docs.aws.amazon.com/AmazonS3/latest/API/API_Operations.html

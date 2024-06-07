@@ -9,7 +9,6 @@ class AWSConfig {
   host: string;
 
     constructor() {
-      // The class variables are initialized using the Spin variable retriever 'Config'.
       let parseVariable = function(key: string): string {
         let result: string|null = Variables.get(key)
         if (typeof result == 'string') {
@@ -56,18 +55,24 @@ class AWSFormattedDate {
 
 
 /**
- * Converts a string to a byte array.
+ * Encodes a string to bytes using UTF-8 encoding
  */
 function encode(str: string): Uint8Array {
   let encoder: TextEncoder = new TextEncoder();
   return encoder.encode(str);
 }
 
+/**
+ * @returns A hex-encoded string of the byte array 
+ */
+async function hexEncode(byteArray: Uint8Array): Promise<string> {
+  return Array.from(byteArray).map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 
 /**
- * Hashes the given payload using the SHA-256 algorithm into a hex-encoded string.
+ * This creates a SHA256 hash of a string/byte array and returns a hex-encoded string
  */
-
 async function getHash(payload: string | Uint8Array): Promise<string> {
   if (typeof payload == "string") {
     payload = encode(payload);
@@ -75,23 +80,26 @@ async function getHash(payload: string | Uint8Array): Promise<string> {
 
   let hashBuffer = await crypto.subtle.digest('SHA-256', payload.buffer);
   let hashArray = new Uint8Array(hashBuffer);
-  let hashHex = Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('');
-  return hashHex;
+  return hexEncode(hashArray);
 }
 
 
-type HeaderStrings = {
+type requestStrings = {
   canonicalHeaders: string;
   signedHeaders: string;
   canonicalQueryString: string;
 };
 
 
-function buildHeaderStrings(headers: Record<string, string>, queryParams: Record<string, string>): HeaderStrings {
+function buildRequestStrings(headers: Record<string, string>, queryParams: Record<string, string>): requestStrings {
+    // Formatted as header_key_1:header_value_1\nheader_key_2:header_value_2\n
     let canonicalHeaders = "";
+    // Formatted as header_key_1;header_key_2
     let signedHeaders = ""; 
+    // Header names must appear in alphabetical order
     let headerKeys = Object.keys(headers).sort(); 
     for (let key of headerKeys) {
+        // Each header name must use lowercase characters
         canonicalHeaders += `${key.toLowerCase()}:${headers[key]}\n`;
         if (signedHeaders == "") {
             signedHeaders += key.toLowerCase();
@@ -112,23 +120,23 @@ function buildHeaderStrings(headers: Record<string, string>, queryParams: Record
 }
 
 
-function getCanonicalRequest(httpVerb: string, canonicalUri: string, canonicalQueryString: string, canonicalHeaders: string, signedHeaders: string, unsignedPayloadHash: string): string {
-    return [httpVerb, canonicalUri, canonicalQueryString, canonicalHeaders, signedHeaders, unsignedPayloadHash].join("\n");
+// The numbered functions below correspond to the image in the article linked here: https://docs.aws.amazon.com/IAM/latest/UserGuide/create-signed-request.html
+// 1. Canonical Request
+function getCanonicalRequest(httpVerb: string, canonicalUri: string, canonicalQueryString: string, canonicalHeaders: string, signedHeaders: string, payloadHash: string): string {
+    return [httpVerb, canonicalUri, canonicalQueryString, canonicalHeaders, signedHeaders, payloadHash].join("\n");
 }
 
 
-async function getStringToSign(awsConfig: AWSConfig, canonicalRequest: string, now: AWSFormattedDate): Promise<string> {
+// 2. StringToSign
+async function getStringToSign(config: AWSConfig, formattedDate: AWSFormattedDate, canonicalRequest: string): Promise<string> {
   let hashedCanonicalRequest = await getHash(canonicalRequest);
-  return (
-    "AWS4-HMAC-SHA256\n" +
-    `${now.dateTime}\n` +
-    `${now.date}/${awsConfig.region}/${awsConfig.service}/aws4_request\n` +
-    hashedCanonicalRequest
-  );
+  let scope = [formattedDate.date, config.region, config.service, "aws4_request"].join("/")
+  return ["AWS4-HMAC-SHA256", formattedDate.dateTime, scope, hashedCanonicalRequest].join("\n")
 }
+
 
 async function createHmac(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
-  const cryptoKey = await crypto.subtle.importKey(
+  let cryptoKey = await crypto.subtle.importKey(
     "raw",
     key,
     {name: "HMAC", hash: "SHA-256"},
@@ -136,78 +144,37 @@ async function createHmac(key: Uint8Array, message: Uint8Array): Promise<Uint8Ar
     ["sign"]
   );
 
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
+  let signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
   return new Uint8Array(signature);
 }
 
 
-/**
- * 
- * @param {String} stringToSign - TODO: Come up with a better description.
- * @returns {String} TODO: Come up with a better description.
- */
-async function getSignature(awsConfig: AWSConfig, stringToSign: string, now: AWSFormattedDate): Promise<string> {
-  const sign = async (key: Uint8Array, msg: string): Promise<Uint8Array> => {
+// 3. Signature
+async function getSignature(config: AWSConfig, formattedDate: AWSFormattedDate, stringToSign: string): Promise<string> {
+  let sign = async (key: Uint8Array, msg: string): Promise<Uint8Array> => {
     return await createHmac(key, encode(msg));
   };
 
-  const hexEncode = async (byteArray: Promise<Uint8Array>): Promise<string> => {
-    return Array.from(await byteArray).map(byte => byte.toString(16).padStart(2, '0')).join('')
-  }
+  let dateKey = await sign(encode(`AWS4${config.secretAccessKey}`), formattedDate.date);
+  let dateRegionKey = await sign(dateKey, config.region);
+  let dateRegionServiceKey = await sign(dateRegionKey, config.service);
+  let signingKey = await sign(dateRegionServiceKey, "aws4_request");
 
-  const logHex = (byteArray: Uint8Array): string => {
-    return Array.from(byteArray).map(byte => byte.toString(16).padStart(2, '0')).join('');
-  }
-
-  const dateKey = await sign(encode(`AWS4${awsConfig.secretAccessKey}`), now.date);
-  const dateRegionKey = await sign(dateKey, awsConfig.region);
-  const dateRegionServiceKey = await sign(dateRegionKey, awsConfig.service);
-  const signingKey = await sign(dateRegionServiceKey, "aws4_request");
-
-  return hexEncode(sign(signingKey, stringToSign))
+  return hexEncode(await sign(signingKey, stringToSign))
 }
 
 
-/**
- * 
- * @param {AWSConfig} awsConfig - The AWSConfig object.
- * @param {FormattedDate} now - The FormattedDate object.
- * @param {String} canonicalRequest - TODO: Come up with a better description
- * @param {String} signedHeaders - All headers included in the request.
- * @returns {String}
- */
-async function getAuthorizationHeader(
-  awsConfig: AWSConfig,
-  now: AWSFormattedDate,
-  canonicalRequest: string,
-  signedHeaders: string
-): Promise<string> {
-  const stringToSign = await getStringToSign(awsConfig, canonicalRequest, now);
-  const signature = await getSignature(awsConfig, stringToSign, now);
+async function getAuthorizationHeader(config: AWSConfig, formattedDate: AWSFormattedDate, canonicalRequest: string, signedHeaders: string): Promise<string> {
+  let stringToSign = await getStringToSign(config, formattedDate, canonicalRequest);
+  let signature = await getSignature(config, formattedDate, stringToSign);
+  let credential = [config.accessKeyId, formattedDate.date, config.region, config.service, "aws4_request"].join("/");
 
-  return `AWS4-HMAC-SHA256 Credential=${awsConfig.accessKeyId}/${now.date}/${awsConfig.region}/${awsConfig.service}/aws4_request, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  return `AWS4-HMAC-SHA256 Credential=${credential}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 }
 
 
-/**
- * 
- * @param {String} httpVerb - The desired HTTP verb action (i.e. GET, POST, DELETE, etc.).
- * @param {AWSConfig} awsConfig - The AWSConfig object.
- * @param {String} uriPath - The path to the desired AWS resource.
- * @param {Object} queryParams - TODO: Get a good definition of this.
- * @param {Object} headers - Any extra headers the AWS resource request may require.
- * @param {ArrayBuffer} payload - The body received from the HTTP request.
- * @returns {Promise<Response>} - The HTTP response from AWS.
- */
-async function sendAwsHttpRequest(
-  httpVerb: string,
-  awsConfig: AWSConfig,
-  uriPath: string,
-  queryParams: Record<string, string>,
-  headers: Record<string, string>,
-  payload: Uint8Array
-): Promise<Response> {
-  let now = new AWSFormattedDate(new Date());
+async function sendAwsHttpRequest(httpVerb: string, config: AWSConfig, uriPath: string, queryParams: Record<string, string>, headers: Record<string, string>, payload: Uint8Array): Promise<Response> {
+  let formattedDate = new AWSFormattedDate(new Date());
 
   if (uriPath == undefined) {
     uriPath = "/";
@@ -217,17 +184,17 @@ async function sendAwsHttpRequest(
 
   let payloadHash = await getHash(payload);
 
-  headers["host"] = awsConfig.host;
-  headers["x-amz-date"] = now.dateTime;
+  // Keep in mind that these are the minimum headers required to interact with AWS. See the relevant service's API guide for any other required headers. 
+  headers["host"] = config.host;
+  headers["x-amz-date"] = formattedDate.dateTime;
   headers["x-amz-content-sha256"] = payloadHash
-  // TODO: Make this match the payload length
   headers["content-length"] = String(payload.length);
-
-  if (awsConfig.sessionToken) {
-    headers["x-amz-security-token"] = awsConfig.sessionToken;
+  // sessionToken is optional
+  if (config.sessionToken) {
+    headers["x-amz-security-token"] = config.sessionToken;
   }
 
-  let { canonicalHeaders, signedHeaders, canonicalQueryString } = buildHeaderStrings(headers, queryParams);
+  let { canonicalHeaders, signedHeaders, canonicalQueryString } = buildRequestStrings(headers, queryParams);
   let canonicalRequest = getCanonicalRequest(
     httpVerb,
     uriPath,
@@ -237,8 +204,9 @@ async function sendAwsHttpRequest(
     payloadHash
   );
 
-  headers["authorization"] = await getAuthorizationHeader(awsConfig, now, canonicalRequest, signedHeaders);
+  headers["authorization"] = await getAuthorizationHeader(config, formattedDate, canonicalRequest, signedHeaders);
 
+  // Spin adds the host header on it's own, so we need to delete it here to avoid a duplicate header error
   delete headers["host"];
 
   let fetchOptions = {
@@ -247,25 +215,26 @@ async function sendAwsHttpRequest(
     body: ["GET", "DELETE", "HEAD"].includes(httpVerb) ? undefined : payload
   };
 
-  let response = await fetch(`http://${awsConfig.host}${uriPath}`, fetchOptions);
+  let response = await fetch(`http://${config.host}${uriPath}`, fetchOptions);
   
   return response;
 }
 
 
 export async function handler(request: Request, res: ResponseBuilder) {
-  let awsConfig: AWSConfig = new AWSConfig();
+  let config: AWSConfig = new AWSConfig();
 
   try {
     let payload: Uint8Array = encode(await request.text());
+    // If necessary, add query parameters: 'query_params[key] = value'
     let queryParams = {};
+    // If necessary, add extra headers: 'headers[key] = value'
     let awsHeaders = {};
-    let uriHeader = request.headers.get("uriPath");
+    let uriHeader = request.headers.get("x-uri-path");
     let uriPath: string = typeof uriHeader == 'string' ? uriHeader : "";
-    let response: Response = await sendAwsHttpRequest(request.method, awsConfig, uriPath, queryParams, awsHeaders, payload);
+    let response: Response = await sendAwsHttpRequest(request.method, config, uriPath, queryParams, awsHeaders, payload);
 
     res.status(response.status);
-    // TODO: Once Karthik fixes, update this to 'response.headers'
     res.set(response.headers);
     res.send(await response.arrayBuffer());
     

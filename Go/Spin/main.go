@@ -16,9 +16,162 @@ import (
 	"github.com/fermyon/spin/sdk/go/v2/variables"
 )
 
+type AWSConfig struct {
+	accessKeyID     string
+	secretAccessKey string
+	sessionToken    string
+	region          string
+	service         string
+	host            string
+}
+
+type AWSFormattedDate struct {
+	date     string // Formatted {YYYYMMDD}
+	dateTime string // Formatted {YYYYMMDD}T{HHMMSS}Z
+}
+
+// Encodes a string to bytes using UTF-8 encoding
+func encode(str string) []byte {
+	return []byte(str)
+}
+
+// This creates a SHA256 hash of a byte array and returns a hex-encoded string
+func getHash(payload []byte) string {
+	hash := sha256.New()
+	hash.Write(payload)
+
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func getRequestStrings(headers http.Header, queryParams map[string]string) (string, string, string) {
+	// Formatted as header_key_1:header_value_1\nheader_key_2:header_value_2\n
+	canonicalHeaders := ""
+	// Formatted as header_key_1;header_key_2
+	signedHeaders := ""
+	headerKeys := make([]string, 0, len(headers))
+	for key := range headers {
+		headerKeys = append(headerKeys, key)
+	}
+	// Header names must appear in alphabetical order
+	sort.Strings(headerKeys)
+
+	for _, key := range headerKeys {
+		// Each header name must use lowercase characters
+		lowerCaseKey := strings.ToLower(key)
+		canonicalHeaders += lowerCaseKey + ":" + headers.Get(key) + "\n"
+		if signedHeaders == "" {
+			signedHeaders += lowerCaseKey
+		} else {
+			signedHeaders += ";" + lowerCaseKey
+		}
+	}
+
+	queryKeys := make([]string, 0, len(queryParams))
+	for key := range queryParams {
+		queryKeys = append(queryKeys, key)
+	}
+	sort.Strings(queryKeys)
+	var canonicalQueryStringArray []string
+	for _, key := range queryKeys {
+		canonicalQueryStringArray = append(canonicalQueryStringArray, key+"="+queryParams[key])
+	}
+	canonicalQueryString := strings.Join(canonicalQueryStringArray, "&")
+
+	return canonicalHeaders, signedHeaders, canonicalQueryString
+}
+
+// The numbered functions below correspond to the image in the article linked here: https://docs.aws.amazon.com/IAM/latest/UserGuide/create-signed-request.html
+// 1. Canonical Request
+func getCanonicalRequest(httpVerb, canonicalUri, canonicalQueryString, canonicalHeaders, signedHeaders, hashedPayload string) string {
+	return strings.Join([]string{httpVerb, canonicalUri, canonicalQueryString, canonicalHeaders, signedHeaders, hashedPayload}, "\n")
+}
+
+// 2. StringToSign
+func getStringToSign(config AWSConfig, formattedDate AWSFormattedDate, canonicalRequest string) string {
+	scope := strings.Join([]string{formattedDate.date, config.region, config.service, "aws4_request"}, "/")
+
+	return strings.Join([]string{"AWS4-HMAC-SHA256", formattedDate.dateTime, scope, getHash([]byte(canonicalRequest))}, "\n")
+}
+
+// 3. Signature
+func getSignature(config AWSConfig, formattedDate AWSFormattedDate, stringToSign string) string {
+	sign := func(key []byte, data []byte) []byte {
+		hash := hmac.New(sha256.New, key)
+		hash.Write(data)
+
+		return hash.Sum(nil)
+	}
+
+	dateKey := sign(encode("AWS4"+config.secretAccessKey), encode(formattedDate.date))
+	regionKey := sign(dateKey, encode(config.region))
+	serviceKey := sign(regionKey, encode(config.service))
+	signingKey := sign(serviceKey, encode("aws4_request"))
+
+	return hex.EncodeToString(sign(signingKey, encode(stringToSign)))
+}
+
+func getAuthorizationHeader(config AWSConfig, formattedDate AWSFormattedDate, canonicalRequest, signedHeaders string) string {
+	stringToSign := getStringToSign(config, formattedDate, canonicalRequest)
+	signature := getSignature(config, formattedDate, stringToSign)
+	credential := strings.Join([]string{config.accessKeyID, formattedDate.date, config.region, config.service, "aws4_request"}, "/")
+
+	return fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s, SignedHeaders=%s, Signature=%s", credential, signedHeaders, signature)
+}
+
+func sendAwsHttpRequest(config AWSConfig, httpVerb, uriPath string, queryParams, headers map[string]string, payload []byte) (*http.Response, error) {
+	// Getting the current time in UTC
+	now := time.Now().UTC()
+	formattedDate := AWSFormattedDate{
+		date:     now.Format("20060102"),
+		dateTime: now.Format("20060102T150405Z"),
+	}
+
+	if uriPath == "" || uriPath[0] != '/' {
+		uriPath = "/" + uriPath
+	}
+
+	payloadHash := getHash(payload)
+	if payloadHash == "" {
+		return nil, fmt.Errorf("failed to generate hash for payload")
+	}
+
+	destinationUrl := "http://" + config.host + uriPath
+
+	req, err := http.NewRequest(httpVerb, destinationUrl, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new request: %w", err)
+	}
+
+	// Adding extra headers
+	for key, value := range headers {
+		// Ensuring that the header keys are lowercase for proper signing.
+		req.Header.Set(strings.ToLower(key), value)
+	}
+
+	// Keep in mind that these are the minimum headers required to interact with AWS. See the relevant service's API guide for any other required headers.
+	req.Header.Set("host", config.host)
+	req.Header.Set("x-amz-date", now.Format("20060102T150405Z"))
+	req.Header.Set("x-amz-content-sha256", payloadHash)
+	req.Header.Set("content-length", fmt.Sprintf("%d", len(payload)))
+	// sessionToken is optional
+	if config.sessionToken != "" {
+		req.Header.Set("x-amz-security-token", config.sessionToken)
+	}
+
+	canonicalHeaders, signedHeaders, canonicalQueryString := getRequestStrings(req.Header, queryParams)
+	canonicalRequest := getCanonicalRequest(httpVerb, uriPath, canonicalQueryString, canonicalHeaders, signedHeaders, payloadHash)
+
+	req.Header.Set("authorization", getAuthorizationHeader(config, formattedDate, canonicalRequest, signedHeaders))
+
+	// Spin adds the host header on it's own, so we need to delete it here to avoid a duplicate header error
+	delete(headers, "host")
+
+	return spinhttp.Send(req)
+}
+
 func init() {
 	spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
-		err := initConfig()
+		config, err := getConfig()
 		if err != nil {
 			fmt.Println("Failed to read configuration:", err)
 			http.Error(w, "Internal Server Error Occurred", http.StatusInternalServerError)
@@ -34,23 +187,18 @@ func init() {
 		}
 		r.Body.Close()
 
-		uriPath := r.Header.Get("uri-path")
+		uriPath := r.Header.Get("x-uri-path")
 		// If necessary, add query parameters: 'queryParams[key] = value'
 		queryParams := make(map[string]string)
 		// If necessary, add extra headers: 'headers[key] = value'
 		headers := make(map[string]string)
 
-		req, err := buildAwsHttpRequest(r.Method, config.host, uriPath, queryParams, headers, payloadBytes)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to create outbound http request: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-
-		resp, err := sendHttpRequest(req)
+		resp, err := sendAwsHttpRequest(config, r.Method, uriPath, queryParams, headers, payloadBytes)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to execute outbound http request: %s", err.Error()), http.StatusInternalServerError)
 			return
 		}
+
 		if resp.StatusCode != http.StatusOK {
 			http.Error(w, fmt.Sprintf("response from outbound http request is not OK %v", resp.Status), http.StatusInternalServerError)
 			return
@@ -84,44 +232,33 @@ func main() {
 	 */
 }
 
-type AWSConfig struct {
-	accessKeyID     string
-	secretAccessKey string
-	sessionToken    string
-	region          string
-	service         string
-	host            string
-}
-
-var config AWSConfig
-
-func initConfig() error {
+func getConfig() (AWSConfig, error) {
 	accessKeyID, err := variables.Get("aws_access_key_id")
 	if err != nil {
-		return err
+		return AWSConfig{}, err
 	}
 	secretAccessKey, err := variables.Get("aws_secret_access_key")
 	if err != nil {
-		return err
+		return AWSConfig{}, err
 	}
 	sessionToken, err := variables.Get("aws_session_token")
 	if err != nil {
-		return err
+		return AWSConfig{}, err
 	}
 	region, err := variables.Get("aws_default_region")
 	if err != nil {
-		return err
+		return AWSConfig{}, err
 	}
 	service, err := variables.Get("aws_service")
 	if err != nil {
-		return err
+		return AWSConfig{}, err
 	}
 	host, err := variables.Get("aws_host")
 	if err != nil {
-		return err
+		return AWSConfig{}, err
 	}
 
-	config = AWSConfig{
+	config := AWSConfig{
 		accessKeyID:     accessKeyID,
 		secretAccessKey: secretAccessKey,
 		sessionToken:    sessionToken,
@@ -130,151 +267,5 @@ func initConfig() error {
 		host:            host,
 	}
 
-	return nil
-}
-
-func sendHttpRequest(req *http.Request) (*http.Response, error) {
-	sender, _ := variables.Get("sender")
-	switch sender {
-	case "http.DefaultClient.Do":
-		return http.DefaultClient.Do(req)
-	case "":
-		fallthrough
-	case "spinhttp.Send":
-		fallthrough
-	default:
-		return spinhttp.Send(req)
-	}
-}
-
-func buildHeaderStrings(headers http.Header, queryParams map[string]string) (string, string, string) {
-	// Building canonical and signed headers
-	canonicalHeaders := ""
-	signedHeaders := ""
-	headerKeys := make([]string, 0, len(headers))
-	for key := range headers {
-		headerKeys = append(headerKeys, key)
-	}
-	sort.Strings(headerKeys)
-
-	for _, key := range headerKeys {
-		// The header keys are capitalized when added to the request, so the header strings are created with the lowerCaseKey, and the header values are looked up by the upper case key.
-		lowerCaseKey := strings.ToLower(key)
-		canonicalHeaders += fmt.Sprintf("%s:%s\n", lowerCaseKey, headers.Get(key))
-		if signedHeaders == "" {
-			signedHeaders += lowerCaseKey
-		} else {
-			signedHeaders += fmt.Sprintf(";%s", lowerCaseKey)
-		}
-	}
-
-	// Building query params
-	queryKeys := make([]string, 0, len(queryParams))
-	for key := range queryParams {
-		queryKeys = append(queryKeys, key)
-	}
-	sort.Strings(queryKeys)
-	var canonicalQueryStringArray []string
-	for _, key := range queryKeys {
-		canonicalQueryStringArray = append(canonicalQueryStringArray, fmt.Sprintf("%s=%s"), key, queryParams[key])
-	}
-	canonicalQueryString := strings.Join(canonicalQueryStringArray, "&")
-
-	return canonicalHeaders, signedHeaders, canonicalQueryString
-}
-
-func buildAwsHttpRequest(httpVerb, host, uriPath string, queryParams, headers map[string]string, payload []byte) (*http.Request, error) {
-	if uriPath == "" || uriPath[0] != '/' {
-		uriPath = "/" + uriPath
-	}
-
-	destinationUrl := fmt.Sprintf("http://%s%s", host, uriPath)
-
-	req, err := http.NewRequest(httpVerb, destinationUrl, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new request: %w", err)
-	}
-
-	now := time.Now().UTC()
-
-	// Adding extra headers
-	for key, value := range headers {
-		// Ensuring that the header keys are lowercase for proper signing.
-		req.Header.Set(strings.ToLower(key), value)
-	}
-
-	payloadHash := hash(payload)
-	if payloadHash == "" {
-		return nil, fmt.Errorf("failed to generate hash for payload")
-	}
-
-	req.Header.Set("host", host)
-	req.Header.Set("x-amz-date", now.Format("20060102T150405Z"))
-	req.Header.Set("x-amz-content-sha256", payloadHash)
-	req.Header.Set("content-length", fmt.Sprintf("%d", len(payload)))
-	// sessionToken is optional
-	if config.sessionToken != "" {
-		req.Header.Set("x-amz-security-token", config.sessionToken)
-	}
-
-	canonicalHeaders, signedHeaders, canonicalQueryString := buildHeaderStrings(req.Header, queryParams)
-	canonicalRequest := getCanonicalRequest(httpVerb, uriPath, canonicalQueryString, canonicalHeaders, signedHeaders, req.Header.Get("x-amz-content-sha256"))
-
-	req.Header.Set("authorization", getAuthorizationHeader(now, canonicalRequest, signedHeaders))
-
-	delete(headers, "host")
-
-	return req, nil
-}
-
-func getAuthorizationHeader(now time.Time, canonicalRequest, signedHeaders string) string {
-
-	// Create the string to sign
-	stringToSign := getStringToSign(canonicalRequest, now)
-
-	// Calculate the signature
-	signature := getSignature(stringToSign, now)
-
-	// Create the authorization header
-	authorizationHeader := fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s/%s/%s/aws4_request, SignedHeaders=%s, Signature=%s",
-		config.accessKeyID, now.Format("20060102"), config.region, config.service, signedHeaders, signature)
-
-	return authorizationHeader
-}
-
-func getCanonicalRequest(httpVerb, canonicalUri, canonicalQueryString, canonicalHeaders, signedHeaders, unsignedPayloadHash string) string {
-	return strings.Join([]string{httpVerb, canonicalUri, canonicalQueryString, canonicalHeaders, signedHeaders, unsignedPayloadHash}, "\n")
-}
-
-func getStringToSign(canonicalRequest string, now time.Time) string {
-	// Create the string to sign
-	stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s/%s/%s/aws4_request\n%s",
-		now.Format("20060102T150405Z"), now.Format("20060102"), config.region, config.service, hash([]byte(canonicalRequest)))
-
-	return stringToSign
-}
-
-func getSignature(stringToSign string, now time.Time) string {
-	// Create the signing key
-	dateKey := hmacSHA256([]byte("AWS4"+config.secretAccessKey), []byte(now.Format("20060102")))
-	regionKey := hmacSHA256(dateKey, []byte(config.region))
-	serviceKey := hmacSHA256(regionKey, []byte(config.service))
-	signingKey := hmacSHA256(serviceKey, []byte("aws4_request"))
-
-	// Calculate the signature
-	signature := hmacSHA256(signingKey, []byte(stringToSign))
-
-	return hex.EncodeToString(signature)
-}
-
-func hmacSHA256(key []byte, data []byte) []byte {
-	hash := hmac.New(sha256.New, key)
-	hash.Write(data)
-	return hash.Sum(nil)
-}
-
-func hash(payload []byte) string {
-	hash := sha256.New()
-	hash.Write(payload)
-	return hex.EncodeToString(hash.Sum(nil))
+	return config, nil
 }
