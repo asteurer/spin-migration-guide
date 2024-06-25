@@ -143,7 +143,7 @@ def send_aws_http_request(config: AWSConfig, http_verb: str, uri_path='/', query
     # Spin adds the host header on it's own, so we need to delete it here to avoid a duplicate header error
     del headers['host']
 
-    return send(Request(http_verb, f"http://{config.host}{uri_path}", headers, payload))
+    return send(Request(http_verb, f"https://{config.host}{uri_path}", headers, payload))
 
 
 class IncomingHandler(IncomingHandler):
@@ -163,10 +163,10 @@ class IncomingHandler(IncomingHandler):
             raise ValueError("One or more required environment variables are missing.")
 
         config = AWSConfig(access_key, secret_key, session_token, region, service, host) 
-        uri_path = request.headers.get('x-uri-path', '')
-        # If necessary, add query parameters: 'query_params[key] = value'
+        # uri_path = request.headers.get('x-uri-path', '')
+        uri_path = request.uri
+        # If necessary, add query parameters and/or extra headers
         query_params = {}
-        # If necessary, add extra headers: 'headers[key] = value'
         headers = {}
 
         payload = request.body

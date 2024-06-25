@@ -20,7 +20,7 @@ component = "python-aws"
 
 [component.python-aws]
 source = "app.wasm"
-allowed_outbound_hosts = ["http://{{ aws_host }}"]
+allowed_outbound_hosts = ["https://{{ aws_host }}"]
 
 
 [component.python-aws.build]
