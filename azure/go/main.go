@@ -17,37 +17,33 @@ import (
 	"github.com/fermyon/spin/sdk/go/v2/variables"
 )
 
-// SharedKeyCredential contains an account's name and its primary or secondary key.
-type SharedKeyCredential struct {
+type AZCredentials struct {
 	accountName string
 	accountKey  []byte
 }
 
-// NewSharedKeyCredential creates an immutable SharedKeyCredential containing the
-// storage account's name and either its primary or secondary key.
-func NewSharedKeyCredential(accountName string, accountKey string) (*SharedKeyCredential, error) {
+func parseAZCredentials(accountName string, accountKey string) (*AZCredentials, error) {
 	decodedKey, err := base64.StdEncoding.DecodeString(accountKey)
 	if err != nil {
 		return nil, fmt.Errorf("Decode account key: %w", err)
 	}
-	return &SharedKeyCredential{accountName: accountName, accountKey: decodedKey}, nil
+	return &AZCredentials{accountName: accountName, accountKey: decodedKey}, nil
 }
 
-// ComputeHMACSHA256 generates a hash signature for an HTTP request or for a SAS.
-func (c *SharedKeyCredential) ComputeHMACSHA256(message string) (string, error) {
+func computeHMACSHA256(c *AZCredentials, message string) (string, error) {
 	h := hmac.New(sha256.New, c.accountKey)
 	_, err := h.Write([]byte(message))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), err
 }
 
-func (c *SharedKeyCredential) buildStringToSign(req *http.Request) (string, error) {
+func buildStringToSign(c *AZCredentials, req *http.Request) (string, error) {
 	headers := req.Header
 	contentLength := getHeader("Content-Length", headers)
 	if contentLength == "0" {
 		contentLength = ""
 	}
 
-	canonicalizedResource, err := c.buildCanonicalizedResource(req.URL)
+	canonicalizedResource, err := buildCanonicalizedResource(c, req.URL)
 	if err != nil {
 		return "", err
 	}
@@ -65,7 +61,7 @@ func (c *SharedKeyCredential) buildStringToSign(req *http.Request) (string, erro
 		getHeader("If-None-Match", headers),
 		getHeader("If-Unmodified-Since", headers),
 		getHeader("Range", headers),
-		c.buildCanonicalizedHeader(headers),
+		buildCanonicalizedHeader(headers),
 		canonicalizedResource,
 	}, "\n")
 	return stringToSign, nil
@@ -84,7 +80,7 @@ func getHeader(key string, headers http.Header) string {
 	return ""
 }
 
-func (c *SharedKeyCredential) buildCanonicalizedHeader(headers http.Header) string {
+func buildCanonicalizedHeader(headers http.Header) string {
 	cm := map[string][]string{}
 	for k, v := range headers {
 		headerName := strings.TrimSpace(strings.ToLower(k))
@@ -100,7 +96,8 @@ func (c *SharedKeyCredential) buildCanonicalizedHeader(headers http.Header) stri
 	for key := range cm {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	sort.Strings(keys) // Canonicalized headers must be in lexicographical order
+
 	ch := bytes.NewBufferString("")
 	for i, key := range keys {
 		if i > 0 {
@@ -113,7 +110,7 @@ func (c *SharedKeyCredential) buildCanonicalizedHeader(headers http.Header) stri
 	return ch.String()
 }
 
-func (c *SharedKeyCredential) buildCanonicalizedResource(u *url.URL) (string, error) {
+func buildCanonicalizedResource(c *AZCredentials, u *url.URL) (string, error) {
 	cr := bytes.NewBufferString("/")
 	cr.WriteString(c.accountName)
 
@@ -141,11 +138,12 @@ func (c *SharedKeyCredential) buildCanonicalizedResource(u *url.URL) (string, er
 			cr.WriteString("\n" + strings.ToLower(paramName) + ":" + strings.Join(paramValues, ","))
 		}
 	}
+
 	return cr.String(), nil
 }
 
 func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey string) (*http.Response, error) {
-	cred, err := NewSharedKeyCredential(accountName, sharedKey)
+	cred, err := parseAZCredentials(accountName, sharedKey)
 	if err != nil {
 		fmt.Println("Error creating credential:", err)
 		return nil, err
@@ -161,12 +159,13 @@ func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey s
 		req.Header.Set("x-ms-blob-type", "BlockBlob")
 	}
 
-	stringToSign, err := cred.buildStringToSign(req)
+	stringToSign, err := buildStringToSign(cred, req)
 	if err != nil {
 		fmt.Println("Error building string to sign:", err)
 		return nil, err
 	}
-	signature, err := cred.ComputeHMACSHA256(stringToSign)
+
+	signature, err := computeHMACSHA256(cred, stringToSign)
 	if err != nil {
 		fmt.Println("Error computing signature:", err)
 		return nil, err
@@ -183,26 +182,42 @@ func init() {
 		accountName, err := variables.Get("az_account_name")
 		if err != nil {
 			http.Error(w, "Error retrieving Azure account name", http.StatusInternalServerError)
+			return
 		}
 
 		sharedKey, err := variables.Get("az_shared_key")
 		if err != nil {
 			http.Error(w, "Error retrieving Azure shared_key", http.StatusInternalServerError)
+			return
 		}
 
 		host, err := variables.Get("az_host")
 		if err != nil {
 			http.Error(w, "Error retrieving Azure endpoint", http.StatusInternalServerError)
+			return
 		}
 
-		// Retrieving request headers
 		uriPath := r.URL.Path
-		endpoint := host + uriPath
+		queryString := r.URL.RawQuery
+		var endpoint string
+
+		if len(queryString) == 0 {
+			if uriPath == "/" {
+				http.Error(w, fmt.Sprint("If you are not including a query string, you must have a more specific URI path (i.e. /containerName/path/to/object)"), http.StatusBadRequest)
+				return
+			} else {
+				endpoint = host + uriPath
+			}
+		} else {
+			endpoint = host + uriPath + "?" + queryString
+		}
+
 		now := time.Now().UTC()
 
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to read request body: %s", err.Error()), http.StatusInternalServerError)
+			return
 		}
 		r.Body.Close()
 

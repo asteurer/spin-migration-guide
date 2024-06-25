@@ -7,7 +7,6 @@ authors = ["Andrew Steurer <andrew.steurer@fermyon.com>"]
 
 [variables]
 az_account_name = { required = true, secret = true }
-az_container_name = { required = true, secret = true }
 az_shared_key = { required = true, secret = true }
 
 
@@ -17,6 +16,7 @@ component = "go-azure"
 
 [component.go-azure]
 source = "main.wasm"
+# If the app needs to access multiple storage accounts, use "https://*.blob.core.windows.net"
 allowed_outbound_hosts = ["https://{{ az_account_name }}.blob.core.windows.net"]
 
 [component.go-azure.build]
@@ -26,4 +26,4 @@ watch = ["**/*.go", "go.mod"]
 [component.go-azure.variables]
 az_account_name = "{{ az_account_name }}"
 az_shared_key = "{{ az_shared_key }}"
-az_host = "https://{{ az_account_name }}.blob.core.windows.net/{{ az_container_name }}"
+az_host = "https://{{ az_account_name }}.blob.core.windows.net"
