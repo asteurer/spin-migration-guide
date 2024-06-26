@@ -1,0 +1,29 @@
+spin_manifest_version = 2
+
+[application]
+name = "Python Azure"
+version = "0.1.0"
+authors = ["Andrew Steurer <andrew.steurer@fermyon.com>"]
+
+[variables]
+az_account_name = { required = true, secret = true }
+az_container_name = { required = true, secret = true }
+az_shared_key = { required = true, secret = true }
+
+[[trigger.http]]
+route = "/..."
+component = "python-azure"
+
+[component.python-azure]
+source = "main.wasm"
+allowed_outbound_hosts = ["https://{{ az_account_name }}.blob.core.windows.net", "http://localhost:8080"]
+
+[component.python-azure.build]
+command = "componentize-py -w spin-http componentize main -o main.wasm"
+watch = ["*.py", "requirements.txt"]
+
+[component.python-azure.variables]
+az_account_name = "{{ az_account_name }}"
+az_shared_key = "{{ az_shared_key }}"
+az_host = "https://{{ az_account_name }}.blob.core.windows.net"
+# az_host = "http://localhost:8080"

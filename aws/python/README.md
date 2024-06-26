@@ -6,12 +6,9 @@ At the moment, Spin does not have support for the AWS SDK. The current workaroun
 ## Requirements
 
 - Latest version of Spin: https://developer.fermyon.com/spin/v2/install
-- Spin's `py2wasm` plugin installed:
-    - After Spin is installed, run `spin plugin install py2wasm -y` in the terminal.
 - Python 3.12
 - Python's `virtualenv` library installed: 
     - After Python is installed, run `pip install virtualenv` in the terminal.
-
 
 ## Usage
 
