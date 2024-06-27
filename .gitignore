@@ -2,3 +2,5 @@
 *.sh
 *.terraform*
 *terraform.tfstate*
+*venv*
+*node_modules*

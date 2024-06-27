@@ -1,31 +1,25 @@
 ## Overview
 
-At the moment, Spin does not have support for the Azure SDK. The current workaround is to make HTTP calls to the Azure service endpoints. This demonstrates how to effectively format and sign those HTTP requests.
+At the moment, Spin does not have support for the Azure SDK. The current workaround is to make HTTP calls to the Azure service endpoints. This demonstrates how to format and sign HTTP requests to Azure.
 
 ## Requirements
 
-- Latest version of Spin: https://developer.fermyon.com/spin/v2/install
-- Go 1.22
-- Tinygo 0.31
-    - To install Tinygo, run the following commands: 
-        ```bash
-        wget https://github.com/tinygo-org/tinygo/releases/download/v0.31.2/tinygo_0.31.2_amd64.deb
-        dpkg -i tinygo_0.31.2_amd64.deb
-        export PATH=$PATH:/usr/local/bin
+- Latest version of [Spin](https://developer.fermyon.com/spin/v2/install)
+- Latest version of [Go](https://go.dev/doc/install)
+- Latest version of [TinyGo](https://tinygo.org/getting-started/install/)
 
-        ```
 
 ## Usage
 
-This example will show how to interact with Azure Blob Storage. See [Azure's documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services.
+This example will show how to interact with Azure Blob Storage. See Azure's [documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services.
 
-### Creating the .env file:
+### Export environment variables
 
-In the same directory as the code files, create a `.env` file with the below variables: 
+In your terminal, export the below variables:
 
-```dotenv
-SPIN_VARIABLE_AZ_ACCOUNT_NAME="YOUR_ACCOUNT_NAME"
-SPIN_VARIABLE_AZ_SHARED_KEY="YOUR_SHARED_KEY"
+```bash
+export SPIN_VARIABLE_AZ_ACCOUNT_NAME=YOUR_ACCOUNT_NAME
+export SPIN_VARIABLE_AZ_SHARED_KEY=YOUR_SHARED_KEY
 ```
 
 Notice that the environment variables are formatted `SPIN_VARIABLE_UPPERCASE_VARIABLE_NAME`. This is the format required by Spin to read environment variables properly. As can be seen in the `spin.toml` file, the Spin application accesses the variables as `lowercase_variable_name`. 
@@ -33,16 +27,9 @@ Notice that the environment variables are formatted `SPIN_VARIABLE_UPPERCASE_VAR
 
 ### Building and running the application:
 
-Once the .env is created, export the environment variables, build a virtual environment, install the dependencies, and then run the Spin application. 
-
-Example commands for Debian Linux:
+Navigate to the directory containing the codefiles, then run the below commands:
 
 ```bash
-# Exporting the variables
-set -a
-source .env
-set +a
-
 # Installing dependencies
 go mod download
 

@@ -22,6 +22,81 @@ type AZCredentials struct {
 	accountKey  []byte
 }
 
+func init() {
+	spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+		// Retrieving Spin variables
+		accountName, err := variables.Get("az_account_name")
+		if err != nil {
+			http.Error(w, "Error retrieving Azure account name", http.StatusInternalServerError)
+			return
+		}
+
+		sharedKey, err := variables.Get("az_shared_key")
+		if err != nil {
+			http.Error(w, "Error retrieving Azure shared_key", http.StatusInternalServerError)
+			return
+		}
+
+		host, err := variables.Get("az_host")
+		if err != nil {
+			http.Error(w, "Error retrieving Azure endpoint", http.StatusInternalServerError)
+			return
+		}
+
+		uriPath := r.URL.Path
+		queryString := r.URL.RawQuery
+		var endpoint string
+
+		if len(queryString) == 0 {
+			if uriPath == "/" {
+				http.Error(w, fmt.Sprint("If you are not including a query string, you must have a more specific URI path (i.e. /containerName/path/to/object)"), http.StatusBadRequest)
+				return
+			} else {
+				endpoint = host + uriPath
+			}
+		} else {
+			endpoint = host + uriPath + "?" + queryString
+		}
+
+		now := time.Now().UTC()
+
+		bodyData, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read request body: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		r.Body.Close()
+
+		req, _ := http.NewRequest(r.Method, endpoint, bytes.NewReader(bodyData))
+
+		resp, err := sendAzureRequest(req, now, accountName, sharedKey)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to execute outbound http request: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			http.Error(w, fmt.Sprintf("Response from outbound http request is not OK %v", resp.Status), http.StatusInternalServerError)
+			return
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read outbound http response: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		resp.Body.Close()
+
+		w.WriteHeader(resp.StatusCode)
+
+		if len(body) == 0 {
+			w.Write([]byte("Response from Azure: " + resp.Status))
+		} else {
+			w.Write(body)
+		}
+	})
+}
+
 func parseAZCredentials(accountName string, accountKey string) (*AZCredentials, error) {
 	decodedKey, err := base64.StdEncoding.DecodeString(accountKey)
 	if err != nil {
@@ -174,81 +249,6 @@ func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey s
 	req.Header.Set("Authorization", authHeader)
 
 	return spinhttp.Send(req)
-}
-
-func init() {
-	spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
-		// Retrieving Spin variables
-		accountName, err := variables.Get("az_account_name")
-		if err != nil {
-			http.Error(w, "Error retrieving Azure account name", http.StatusInternalServerError)
-			return
-		}
-
-		sharedKey, err := variables.Get("az_shared_key")
-		if err != nil {
-			http.Error(w, "Error retrieving Azure shared_key", http.StatusInternalServerError)
-			return
-		}
-
-		host, err := variables.Get("az_host")
-		if err != nil {
-			http.Error(w, "Error retrieving Azure endpoint", http.StatusInternalServerError)
-			return
-		}
-
-		uriPath := r.URL.Path
-		queryString := r.URL.RawQuery
-		var endpoint string
-
-		if len(queryString) == 0 {
-			if uriPath == "/" {
-				http.Error(w, fmt.Sprint("If you are not including a query string, you must have a more specific URI path (i.e. /containerName/path/to/object)"), http.StatusBadRequest)
-				return
-			} else {
-				endpoint = host + uriPath
-			}
-		} else {
-			endpoint = host + uriPath + "?" + queryString
-		}
-
-		now := time.Now().UTC()
-
-		bodyData, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read request body: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-		r.Body.Close()
-
-		req, _ := http.NewRequest(r.Method, endpoint, bytes.NewReader(bodyData))
-
-		resp, err := sendAzureRequest(req, now, accountName, sharedKey)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute outbound http request: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			http.Error(w, fmt.Sprintf("Response from outbound http request is not OK %v", resp.Status), http.StatusInternalServerError)
-			return
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read outbound http response: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-		resp.Body.Close()
-
-		w.WriteHeader(resp.StatusCode)
-
-		if len(body) == 0 {
-			w.Write([]byte("Response from Azure: " + resp.Status))
-		} else {
-			w.Write(body)
-		}
-	})
 }
 
 func main() {}

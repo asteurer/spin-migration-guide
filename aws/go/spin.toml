@@ -20,7 +20,7 @@ component = "go-aws"
 
 [component.go-aws]
 source = "main.wasm"
-allowed_outbound_hosts = ["http://{{ aws_host }}"]
+allowed_outbound_hosts = ["http://{{aws_host}}"]
 
 [component.go-aws.build]
 command = "tinygo build -target=wasi -gc=leaking -no-debug -o main.wasm main.go"
