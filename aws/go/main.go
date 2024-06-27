@@ -113,8 +113,6 @@ func getSignature(config AWSConfig, formattedDate AWSFormattedDate, stringToSign
 func getAuthorizationHeader(config AWSConfig, formattedDate AWSFormattedDate, canonicalRequest, signedHeaders string) string {
 	stringToSign := getStringToSign(config, formattedDate, canonicalRequest)
 	signature := getSignature(config, formattedDate, stringToSign)
-	fmt.Println("STRING_TO_SIGN: ", stringToSign)
-	fmt.Println("SIGNATURE: ", signature)
 	credential := strings.Join([]string{config.accessKeyID, formattedDate.date, config.region, config.service, "aws4_request"}, "/")
 
 	return fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s, SignedHeaders=%s, Signature=%s", credential, signedHeaders, signature)
@@ -122,8 +120,7 @@ func getAuthorizationHeader(config AWSConfig, formattedDate AWSFormattedDate, ca
 
 func sendAwsHttpRequest(config AWSConfig, httpVerb, uriPath string, queryParams, headers map[string]string, payload []byte) (*http.Response, error) {
 	// Getting the current time in UTC
-	// now := time.Now().UTC()
-	now := time.Date(2024, 06, 04, 0, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	formattedDate := AWSFormattedDate{
 		date:     now.Format("20060102"),
 		dateTime: now.Format("20060102T150405Z"),
@@ -163,9 +160,6 @@ func sendAwsHttpRequest(config AWSConfig, httpVerb, uriPath string, queryParams,
 
 	canonicalHeaders, signedHeaders, canonicalQueryString := getRequestStrings(req.Header, queryParams)
 	canonicalRequest := getCanonicalRequest(httpVerb, uriPath, canonicalQueryString, canonicalHeaders, signedHeaders, payloadHash)
-	fmt.Println("CANONICAL_HEADERS: ", canonicalHeaders)
-	fmt.Println("SIGNED_HEADERS: ", signedHeaders)
-	fmt.Println("CANONICAL_REQUEST: ", canonicalRequest)
 
 	req.Header.Set("authorization", getAuthorizationHeader(config, formattedDate, canonicalRequest, signedHeaders))
 
