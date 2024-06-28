@@ -58,7 +58,8 @@ func init() {
 			endpoint = host + uriPath + "?" + queryString
 		}
 
-		now := time.Now().UTC()
+		// now := time.Now().UTC()
+		now := time.Date(2024, 06, 01, 0, 0, 0, 0, time.UTC)
 
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -112,6 +113,18 @@ func computeHMACSHA256(c *AZCredentials, message string) (string, error) {
 }
 
 func buildStringToSign(c *AZCredentials, req *http.Request) (string, error) {
+	getHeader := func(key string, headers http.Header) string {
+		if headers == nil {
+			return ""
+		}
+		if v, ok := headers[key]; ok {
+			if len(v) > 0 {
+				return v[0]
+			}
+		}
+		return ""
+	}
+
 	headers := req.Header
 	contentLength := getHeader("Content-Length", headers)
 	if contentLength == "0" {
@@ -139,20 +152,9 @@ func buildStringToSign(c *AZCredentials, req *http.Request) (string, error) {
 		buildCanonicalizedHeader(headers),
 		canonicalizedResource,
 	}, "\n")
+
+	fmt.Println("STRING TO SIGN:\n" + stringToSign)
 	return stringToSign, nil
-}
-
-func getHeader(key string, headers http.Header) string {
-	if headers == nil {
-		return ""
-	}
-	if v, ok := headers[key]; ok {
-		if len(v) > 0 {
-			return v[0]
-		}
-	}
-
-	return ""
 }
 
 func buildCanonicalizedHeader(headers http.Header) string {

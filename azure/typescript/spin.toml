@@ -1,29 +1,29 @@
 spin_manifest_version = 2
 
 [application]
-name = "Go Azure"
-version = "0.1.0"
 authors = ["Andrew Steurer <andrew.steurer@fermyon.com>"]
+description = ""
+name = "typescript-azure"
+version = "0.1.0"
 
 [variables]
 az_account_name = { required = true, secret = true }
 az_shared_key = { required = true, secret = true }
 
-
 [[trigger.http]]
 route = "/..."
-component = "go-azure"
+component = "typescript-azure"
 
-[component.go-azure]
-source = "main.wasm"
-# If the app needs to access multiple storage accounts, use "https://*.blob.core.windows.net"
+[component.typescript-azure]
+source = "target/typescript.wasm"
+exclude_files = ["**/node_modules"]
 allowed_outbound_hosts = ["https://{{ az_account_name }}.blob.core.windows.net", "http://localhost:8080"]
 
-[component.go-azure.build]
-command = "tinygo build -target=wasi -gc=leaking -no-debug -o main.wasm main.go"
-watch = ["**/*.go", "go.mod"]
+[component.typescript-azure.build]
+command = "npm run build"
+watch = ["src/**/*.ts", "package.json"]
 
-[component.go-azure.variables]
+[component.typescript-azure.variables]
 az_account_name = "{{ az_account_name }}"
 az_shared_key = "{{ az_shared_key }}"
 # az_host = "https://{{ az_account_name }}.blob.core.windows.net"
