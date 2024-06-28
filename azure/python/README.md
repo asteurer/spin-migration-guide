@@ -1,25 +1,27 @@
 ## Overview
 
-At the moment, Spin does not have support for the Azure SDK. The current workaround is to make HTTP calls to the Azure service endpoints. This demonstrates how to effectively format and sign those HTTP requests.
+At the moment, Spin does not have support for the Azure SDK. The current workaround is to make HTTP calls to the Azure service endpoints. This demonstrates how to format and sign HTTP requests to Azure.
 
 ## Requirements
 
-- Latest version of Spin: https://developer.fermyon.com/spin/v2/install
-- Python 3.12
-- Python's `virtualenv` library installed: 
-    - After Python is installed, run `pip install virtualenv` in the terminal.
+- Latest version of [Spin](https://developer.fermyon.com/spin/v2/install)
+- Latest version of [Python](https://www.python.org/downloads/)
+- Python's `virtualenv` library: 
+    - After Python is installed, run `pip install virtualenv` in your terminal.
 
 ## Usage
 
-This example will show how to interact with Azure Blob Storage. See [Azure's documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services.
+This example will show how to interact with Azure Blob Storage. See Azure's [documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services. 
 
-### Creating the .env file:
+Keep in mind: The code examples below are for Linux, so be sure to adjust them according to your operating system.
 
-In the same directory as the code files, create a `.env` file with the below variables: 
+### Export environment variables
 
-```dotenv
-SPIN_VARIABLE_AZ_ACCOUNT_NAME="YOUR_ACCOUNT_NAME"
-SPIN_VARIABLE_AZ_SHARED_KEY="YOUR_SHARED_KEY"
+In your terminal, export the below variables:
+
+```bash
+export SPIN_VARIABLE_AZ_ACCOUNT_NAME=YOUR_ACCOUNT_NAME
+export SPIN_VARIABLE_AZ_SHARED_KEY=YOUR_SHARED_KEY
 ```
 
 Notice that the environment variables are formatted `SPIN_VARIABLE_UPPERCASE_VARIABLE_NAME`. This is the format required by Spin to read environment variables properly. As can be seen in the `spin.toml` file, the Spin application accesses the variables as `lowercase_variable_name`. 
@@ -27,16 +29,9 @@ Notice that the environment variables are formatted `SPIN_VARIABLE_UPPERCASE_VAR
 
 ### Building and running the application:
 
-Once the .env is created, export the environment variables, build a virtual environment, install the dependencies, and then run the Spin application. 
-
-Example commands for Debian Linux:
+Navigate to the directory containing the codefiles, then run the below commands:
 
 ```bash
-# Exporting the variables
-set -a
-source .env
-set +a
-
 # Creating and activating a virtual environment
 python -m virtualenv venv
 source venv/bin/activate
@@ -47,7 +42,7 @@ pip install -r requirements.txt
 # Building and running the Spin application
 spin up --build
 
-# Exit virtual environment
+# Exit virtual environment after you are done with the application
 deactivate
 ```
 

@@ -11,7 +11,9 @@ At the moment, Spin does not have support for the Azure SDK. The current workaro
 
 ## Usage
 
-This example will show how to interact with Azure Blob Storage. See Azure's [documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services.
+This example will show how to interact with Azure Blob Storage. See Azure's [documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services. 
+
+Keep in mind: The code examples below are for Linux, so be sure to adjust them according to your operating system.
 
 ### Export environment variables
 

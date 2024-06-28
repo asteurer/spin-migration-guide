@@ -19,12 +19,56 @@ class AZCredentials:
             logging.fatal(f"Unable to base64 decode account_key{e}")
 
 
+class IncomingHandler(IncomingHandler):
+    def handle_request(self, request: Request) -> Response:
+        try:
+            account_name = variables.get("az_account_name")
+            shared_key = variables.get("az_shared_key")
+            host = variables.get("az_host")
+        except Exception as e:
+            return Response(
+                200,
+                {"content-type": "text/plain"},
+                bytes(f"Unable to read environment variables: {e}")
+            )
+        
+        parsed_url = urlparse(request.uri)
+        uri_path = parsed_url.path
+        query_string = parsed_url.query
 
-def get_header(key: str, headers: dict) -> str:
-    value = headers.get(key)
-    if value == None:
-        return ""
-    return value
+        if len(query_string) == 0: 
+            if uri_path == "/":
+                return Response(
+                    200,
+                    {"content-type": "text/plain"},
+                    bytes("Error: If you are not including a query string, you must have a more specific URI path (i.e. /container_name/path/to/object)")
+                )
+            else:
+                endpoint = host + uri_path
+        else:
+            endpoint = host + uri_path + "?" + query_string
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        body_bytes = request.body
+        if body_bytes is None:
+            body_bytes = b''
+
+        new_req = Request(request.method, endpoint, {}, body_bytes)
+
+        try:
+            response = send_azure_request(new_req, now, account_name, shared_key)
+            return Response(
+                response.status,
+                response.headers,
+                response.body
+            )
+        except Exception as e:
+            return Response(
+                200,
+                {"content-type": "text/plain"},
+                bytes(f"Error sending request to Azure: {e}")
+            )
     
 
 def compute_HMAC_SHA256(c: AZCredentials, message: str) -> str:
@@ -58,6 +102,13 @@ def build_string_to_sign(c: AZCredentials, req: Request) -> str:
     ])
 
 
+def get_header(key: str, headers: dict) -> str:
+    value = headers.get(key)
+    if value == None:
+        return ""
+    return value
+
+
 def build_canonicalized_header(headers: dict) -> str:
     canonical_headers_map = {}
     for key, value in headers.items():
@@ -86,7 +137,6 @@ def build_canonicalized_resource(c: AZCredentials, url: str) -> str:
     canonicalized_resource = "/" + c.account_name
 
     if url:
-        print("isURl: " + url)
         parsed_url = urlparse(url)
         canonicalized_resource += parsed_url.path
 
@@ -105,58 +155,19 @@ def build_canonicalized_resource(c: AZCredentials, url: str) -> str:
 def send_azure_request(req: Request, now: datetime.datetime, account_name: str, shared_key: str) -> Response:
     creds = AZCredentials(account_name, shared_key)
     
-    req.headers["X-Ms-Date"] = formatdate(timeval=now.timestamp(), localtime=False, usegmt=True)
-    req.headers["X-Ms-Version"] = "2020-10-02"
+    req.headers["x-ms-date"] = formatdate(timeval=now.timestamp(), localtime=False, usegmt=True)
+    req.headers["x-ms-version"] = "2020-10-02"
 
     if req.method == "PUT" or req.method == "POST":
-        req.headers["Content-Length"] = f'{len(req.body)}'
-        req.headers["X-Ms-Blob-Type"] = "BlockBlob"
+        req.headers["content-length"] = f'{len(req.body)}'
+        req.headers["x-ms-blob-type"] = "BlockBlob"
 
     string_to_sign = build_string_to_sign(creds, req)
     signature = compute_HMAC_SHA256(creds, string_to_sign)
     auth_header = f'SharedKey {account_name}:{signature}'
 
-    req.headers["Authorization"] = auth_header
+    req.headers["authorization"] = auth_header
 
     request = Request(req.method, req.uri, req.headers, req.body)
     
     return send(request)
-
-class IncomingHandler(IncomingHandler):
-    def handle_request(self, request: Request) -> Response:
-        try:
-            account_name = variables.get("az_account_name")
-            shared_key = variables.get("az_shared_key")
-            host = variables.get("az_host")
-        except Exception as e:
-            return Response(
-                200,
-                {"content-type": "text/plain"},
-                bytes(f"Unable to read environment variables: {e}")
-            )
-        
-        parsed_url = urlparse(request.uri)
-        uri_path = parsed_url.path
-        query_string = parsed_url.query
-        endpoint = host + uri_path + "?" + query_string
-        now = datetime.datetime.now(datetime.timezone.utc)
-
-        body_bytes = request.body
-        if body_bytes is None:
-            body_bytes = b''
-
-        new_req = Request(request.method, endpoint, {}, body_bytes)
-
-        try:
-            response = send_azure_request(new_req, now, account_name, shared_key)
-            return Response(
-                response.status,
-                response.headers,
-                response.body
-            )
-        except Exception as e:
-            return Response(
-                200,
-                {"content-type": "text/plain"},
-                bytes(f"Error sending request to Azure: {e}")
-            )

@@ -230,7 +230,7 @@ func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey s
 
 	// Setting method-specific headers
 	if req.Method == "PUT" || req.Method == "POST" {
-		req.Header.Set("Content-Length", fmt.Sprintf("%d", req.ContentLength))
+		req.Header.Set("content-length", fmt.Sprintf("%d", req.ContentLength))
 		req.Header.Set("x-ms-blob-type", "BlockBlob")
 	}
 
@@ -246,7 +246,7 @@ func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey s
 		return nil, err
 	}
 	authHeader := fmt.Sprintf("SharedKey %s:%s", accountName, signature)
-	req.Header.Set("Authorization", authHeader)
+	req.Header.Set("authorization", authHeader)
 
 	return spinhttp.Send(req)
 }
