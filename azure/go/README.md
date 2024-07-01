@@ -45,25 +45,37 @@ While the Spin app is running, open a new terminal window and try running the co
 #### List blobs:
 
 ```bash
-curl "http://127.0.0.1:3000/container-name?restype=container&comp=list"
+curl \
+    -H 'x-az-host: http://your-account-name.blob.core.windows.net' \
+    "http://127.0.0.1:3000/container-name?restype=container&comp=list"
 ```
 
 #### Get blob:
 
 ```bash
-curl -o file_name.extension "http://127.0.0.1:3000/container-name/path/to/your/blob"
+curl \
+    -o file_name.extension \
+    -H 'x-az-host: http://your-account-name.blob.core.windows.net' \
+    "http://127.0.0.1:3000/container-name/path/to/your/blob"
 ```
 
 #### Delete blob:
 
 ```bash
-curl --request DELETE "http://127.0.0.1:3000/container-name/path/to/your/blob"
+curl \
+    --request DELETE \
+    -H 'x-az-host: http://your-account-name.blob.core.windows.net' \
+    "http://127.0.0.1:3000/container-name/path/to/your/blob"
 ```
 
 #### Place blob:
 
 ```bash
-curl --request PUT --data-binary @/path/to/file "http://127.0.0.1:3000/container-name/path/to/your/blob"
+curl \
+    --request PUT \
+    -H 'x-az-host: http://your-account-name.blob.core.windows.net' \
+    --data-binary @/path/to/file \
+    "http://127.0.0.1:3000/container-name/path/to/your/blob"
 ```
 
 #### List queues:
@@ -101,6 +113,6 @@ curl \
 curl \
     --request POST \
     -H 'x-az-host: http://your-account-name.queue.core.windows.net' \
-    --data-binary @path/to/your/xml/message
+    --data-binary @path/to/your/xml/message \
     localhost:3000/your-queue-name/messages
 ```
