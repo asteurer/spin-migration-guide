@@ -58,8 +58,7 @@ func init() {
 			endpoint = host + uriPath + "?" + queryString
 		}
 
-		// now := time.Now().UTC()
-		now := time.Date(2024, 06, 01, 0, 0, 0, 0, time.UTC)
+		now := time.Now().UTC()
 
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {

@@ -1,15 +1,24 @@
 import { ResponseBuilder, Variables } from "@fermyon/spin-sdk";
 import { parse as urlParse } from "uri-js";
 
+const utf8 = new TextEncoder();
+
 class AZCredentials {
     private accountName: string;
     private accountKey: Uint8Array;
 
     public constructor(accountName: string, accountKey: string) {
         this.accountName = accountName;
-        // TODO: Verify that this isn't the cause of the issue
+
         // Base64 decoding the account key and parsing that string into a byte array.
-        this.accountKey = byteEncode(atob(accountKey));
+        const binaryString = atob(accountKey);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        this.accountKey = bytes;
     }
 
     public getAccountName(): string {
@@ -24,13 +33,7 @@ class AZCredentials {
 export async function handler(request: Request, res: ResponseBuilder) {
     let accountName = Variables.get("az_account_name")!;
     let sharedKey = Variables.get("az_shared_key")!; 
-    // TODO: Figure out why this variable call returns null
-    // let endpoint = Variables.get("az_host")!;
-    // let endpoint = "https://asteurer762d6656.blob.core.windows.net"
-    let endpoint = "http://localhost:8080"
-
-    console.log(`INITIAL ENDPOINT: ${endpoint}\nACCOUNT NAME: ${accountName}\nSHARED KEY: ${sharedKey}`);
-
+    let endpoint = Variables.get("az_host")!;
     let url = urlParse(request.url);
     let uriPath = url.path!;
     let queryString = url.query!;
@@ -47,13 +50,10 @@ export async function handler(request: Request, res: ResponseBuilder) {
     } else {
         endpoint += uriPath + "?" + queryString;
     }
-    
-    console.log(`ALTERED ENDPOINT: ${endpoint}`);
 
     try {
-      let body: Uint8Array = byteEncode(await request.text());
-      // TODO: Change the date back to now
-      let response = await sendAzureRequest(request.method, endpoint, body, new Date("2024-06-01"), accountName, sharedKey);
+      let body: Uint8Array = utf8.encode(await request.text());
+      let response = await sendAzureRequest(request.method, endpoint, body, new Date(), accountName, sharedKey);
   
       res.status(response.status);
       res.set(response.headers);
@@ -66,11 +66,6 @@ export async function handler(request: Request, res: ResponseBuilder) {
     }
   }
 
-function byteEncode(str: string): Uint8Array {
-    return new TextEncoder().encode(str);
-}
-
-// TODO: This is almost certainly where the issue lies
 async function computeHMACSHA256(c: AZCredentials, message: Uint8Array): Promise<string> {
     let cryptoKey = await crypto.subtle.importKey("raw", c.getAccountKey(), {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
     let signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
@@ -165,21 +160,15 @@ function buildCanonicalizedResource(c: AZCredentials, url: string): string {
         return acc;
     }
     
-    console.log(`QUERY: ${u.query}`)
     let params = u.query!.split("&").reduce(makeParamMap, {});
-    console.log(`PARAMS: ${params}`)
     let paramNames: string[] = Object.keys(params)
 
     paramNames.sort();
-
-    console.log(`PARAM NAMES: ${paramNames}`);
 
     for (let paramName of paramNames) {
         let paramValue = params[paramName]
         cr += `\n${paramName.toLowerCase()}:${paramValue}`;
     }
-
-    console.log(`CANONICALIZED RESOURCE: ${cr}`)
 
     return cr;
 }
@@ -197,7 +186,7 @@ async function sendAzureRequest(method: string, url: string, body: Uint8Array, n
     }
 
     let stringToSign = buildStringToSign(cred, method, url, headers);
-    let signature = await computeHMACSHA256(cred, byteEncode(stringToSign));
+    let signature = await computeHMACSHA256(cred, utf8.encode(stringToSign));
     let authHeader = `SharedKey ${accountName}:${signature}`;
     
     headers["authorization"] = authHeader;

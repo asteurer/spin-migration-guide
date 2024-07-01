@@ -6,6 +6,7 @@ At the moment, Spin does not have support for the Azure SDK. The current workaro
 
 - Latest version of [Spin](https://developer.fermyon.com/spin/v2/install)
 - Latest version of [Python](https://www.python.org/downloads/)
+- Latest version of [pip](https://pip.pypa.io/en/stable/installation/)
 - Python's `virtualenv` library: 
     - After Python is installed, run `pip install virtualenv` in your terminal.
 
