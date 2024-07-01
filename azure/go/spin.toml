@@ -16,8 +16,11 @@ component = "go-azure"
 
 [component.go-azure]
 source = "main.wasm"
-# If the app needs to access multiple storage accounts, use "https://*.blob.core.windows.net"
-allowed_outbound_hosts = ["https://{{ az_account_name }}.blob.core.windows.net", "http://localhost:8080"]
+# If the app needs to access multiple storage accounts, use "https://*.{{blob|queue}}.core.windows.net"
+allowed_outbound_hosts = [
+    "https://{{ az_account_name }}.blob.core.windows.net", 
+    "https://{{ az_account_name }}.queue.core.windows.net"
+]
 
 [component.go-azure.build]
 command = "tinygo build -target=wasi -gc=leaking -no-debug -o main.wasm main.go"
@@ -26,5 +29,3 @@ watch = ["**/*.go", "go.mod"]
 [component.go-azure.variables]
 az_account_name = "{{ az_account_name }}"
 az_shared_key = "{{ az_shared_key }}"
-# az_host = "https://{{ az_account_name }}.blob.core.windows.net"
-az_host = "http://localhost:8080"

@@ -37,9 +37,9 @@ func init() {
 			return
 		}
 
-		host, err := variables.Get("az_host")
-		if err != nil {
-			http.Error(w, "Error retrieving Azure endpoint", http.StatusInternalServerError)
+		host := r.Header.Get("x-az-host")
+		if host == "" {
+			http.Error(w, "ERROR: You must include the x-az-host header in your request", http.StatusBadRequest)
 			return
 		}
 
@@ -248,6 +248,8 @@ func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey s
 	}
 	authHeader := fmt.Sprintf("SharedKey %s:%s", accountName, signature)
 	req.Header.Set("authorization", authHeader)
+
+	fmt.Println(req)
 
 	return spinhttp.Send(req)
 }

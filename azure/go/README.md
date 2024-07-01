@@ -11,9 +11,7 @@ At the moment, Spin does not have support for the Azure SDK. The current workaro
 
 ## Usage
 
-This example will show how to interact with Azure Blob Storage. See Azure's [documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services. 
-
-Keep in mind: The code examples below are for Linux, so be sure to adjust them according to your operating system.
+This example will show how to interact with Azure Blob Storage and Azure Queue Storage. See Azure's [documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services. 
 
 ### Export environment variables
 
@@ -66,4 +64,43 @@ curl --request DELETE "http://127.0.0.1:3000/container-name/path/to/your/blob"
 
 ```bash
 curl --request PUT --data-binary @/path/to/file "http://127.0.0.1:3000/container-name/path/to/your/blob"
+```
+
+#### List queues:
+
+```bash
+curl \
+    -H 'x-az-host: http://your-account-name.queue.core.windows.net' \
+    "locahost:3000?comp=list"
+```
+#### Get queue messages:
+
+```bash
+curl \
+    -H 'x-az-host: http://your-account-name.queue.core.windows.net' \
+    locahost:3000/your-queue-name/messages
+```
+
+#### Delete queue message:
+
+```bash
+# The message-id and pop-receipt string values can be retrieved via getting messages from the queue.
+curl \
+    --request DELETE \
+    -H 'x-az-host: http://your-account-name.queue.core.windows.net' \
+    "localhost:3000/your-queue-name/messages/your-message-id?popreceipt=your-pop-receipt-value"
+```
+
+#### Place queue message: 
+
+```bash
+# Per their documentation, the request body needs to be formatted like the following XML:
+# <QueueMessage>
+#   <MessageText>YourMessageHere</MessageText>
+# </QueueMessage>
+curl \
+    --request POST \
+    -H 'x-az-host: http://your-account-name.queue.core.windows.net' \
+    --data-binary @path/to/your/xml/message
+    localhost:3000/your-queue-name/messages
 ```
