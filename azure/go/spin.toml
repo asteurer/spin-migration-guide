@@ -19,7 +19,7 @@ source = "main.wasm"
 # If the app needs to access multiple storage accounts, use "https://*.{{blob|queue}}.core.windows.net"
 allowed_outbound_hosts = [
     "https://{{ az_account_name }}.blob.core.windows.net", 
-    "https://{{ az_account_name }}.queue.core.windows.net"
+    "https://{{ az_account_name }}.queue.core.windows.net",
 ]
 
 [component.go-azure.build]

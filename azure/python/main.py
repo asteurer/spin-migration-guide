@@ -10,8 +10,9 @@ from urllib.parse import parse_qs, urlparse
 
 
 class AZCredentials:
-    def __init__(self, account_name: str, account_key: str) -> None:
+    def __init__(self, account_name: str, account_key: str, service: str) -> None:
         self.account_name: str = account_name
+        self.service: str = service
 
         try:
             self.account_key: bytes = base64.b64decode(account_key)
@@ -24,29 +25,37 @@ class IncomingHandler(IncomingHandler):
         try:
             account_name = variables.get("az_account_name")
             shared_key = variables.get("az_shared_key")
-            host = variables.get("az_host")
         except Exception as e:
             return Response(
                 200,
                 {"content-type": "text/plain"},
-                bytes(f"Unable to read environment variables: {e}")
+                f"Unable to read environment variables: {e}".encode('utf-8')
             )
         
+        service = request.headers.get("x-az-service")
+        if not service:
+            return Response(
+                200,
+                {"content-type": "text/plain"},
+                "ERROR: You must include the 'x-az-service' with your request.".encode('utf-8')
+            )
+
         parsed_url = urlparse(request.uri)
         uri_path = parsed_url.path
         query_string = parsed_url.query
+        endpoint = f"https://{account_name}.{service}.core.windows.net"
 
         if len(query_string) == 0: 
             if uri_path == "/":
                 return Response(
                     200,
                     {"content-type": "text/plain"},
-                    bytes("Error: If you are not including a query string, you must have a more specific URI path (i.e. /container_name/path/to/object)")
+                    "Error: If you are not including a query string, you must have a more specific URI path (i.e. /container_name/path/to/object)".encode('utf-8')
                 )
             else:
-                endpoint = host + uri_path
+                endpoint += uri_path
         else:
-            endpoint = host + uri_path + "?" + query_string
+            endpoint += uri_path + "?" + query_string
 
         now = datetime.datetime.now(datetime.timezone.utc)
 
@@ -57,7 +66,7 @@ class IncomingHandler(IncomingHandler):
         new_req = Request(request.method, endpoint, {}, body_bytes)
 
         try:
-            response = send_azure_request(new_req, now, account_name, shared_key)
+            response = send_azure_request(new_req, now, account_name, shared_key, service)
             return Response(
                 response.status,
                 response.headers,
@@ -67,7 +76,7 @@ class IncomingHandler(IncomingHandler):
             return Response(
                 200,
                 {"content-type": "text/plain"},
-                bytes(f"Error sending request to Azure: {e}")
+                f"Error sending request to Azure: {e}".encode('utf-8')
             )
     
 
@@ -77,7 +86,15 @@ def compute_HMAC_SHA256(c: AZCredentials, message: str) -> str:
 
 
 def build_string_to_sign(c: AZCredentials, req: Request) -> str:
-    content_length = get_header("Content-Length", req.headers)
+	# Returns a blank value if the header value doesn't exist
+    def get_header(key: str, headers: dict) -> str:
+        value = headers.get(key)
+        if value == None:
+            return ""
+        return value
+    
+	# Per the documentation, the Content-Length field must be an empty string if the content length of the request is zero.    
+    content_length = get_header("content-length", req.headers)
     if content_length == '0':
         content_length = ""
     
@@ -86,27 +103,20 @@ def build_string_to_sign(c: AZCredentials, req: Request) -> str:
 
     return "\n".join([
         req.method, 
-        get_header("Content-Encoding", req.headers),
-        get_header("Content-Language", req.headers), 
+        get_header("content-encoding", req.headers),
+        get_header("content-language", req.headers), 
         content_length,
-        get_header("Content-MD5", req.headers),
-        get_header("Content-Type", req.headers),
+        get_header("content-md5", req.headers),
+        get_header("content-type", req.headers),
         "", # Empty date because x-ms-date is expected
-        get_header("If-Modified-Since", req.headers),
-        get_header("If-Match", req.headers),
-        get_header("If-None-Match", req.headers),
-        get_header("If-Unmodified-Since", req.headers),
-        get_header("Range", req.headers),
+        get_header("if-modified-since", req.headers),
+        get_header("if-match", req.headers),
+        get_header("if-none-match", req.headers),
+        get_header("if-unmodified-since", req.headers),
+        get_header("range", req.headers),
         canonicalized_header,
         canonicalized_resource
     ])
-
-
-def get_header(key: str, headers: dict) -> str:
-    value = headers.get(key)
-    if value == None:
-        return ""
-    return value
 
 
 def build_canonicalized_header(headers: dict) -> str:
@@ -152,15 +162,18 @@ def build_canonicalized_resource(c: AZCredentials, url: str) -> str:
     return canonicalized_resource
 
 
-def send_azure_request(req: Request, now: datetime.datetime, account_name: str, shared_key: str) -> Response:
-    creds = AZCredentials(account_name, shared_key)
+def send_azure_request(req: Request, now: datetime.datetime, account_name: str, shared_key: str, service: str) -> Response:
+    creds = AZCredentials(account_name, shared_key, service)
     
+	# Setting universally required headers
     req.headers["x-ms-date"] = formatdate(timeval=now.timestamp(), localtime=False, usegmt=True)
-    req.headers["x-ms-version"] = "2020-10-02"
+    req.headers["x-ms-version"] = "2020-10-02" # Although not technically required, we strongly recommend specifying the latest Azure Storage API version: https://learn.microsoft.com/en-us/rest/api/storageservices/versioning-for-the-azure-storage-services
 
+    # Setting method and service-specific headers
     if req.method == "PUT" or req.method == "POST":
         req.headers["content-length"] = f'{len(req.body)}'
-        req.headers["x-ms-blob-type"] = "BlockBlob"
+        if service == "blob":
+            req.headers["x-ms-blob-type"] = "BlockBlob"
 
     string_to_sign = build_string_to_sign(creds, req)
     signature = compute_HMAC_SHA256(creds, string_to_sign)

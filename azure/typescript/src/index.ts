@@ -6,9 +6,11 @@ const utf8 = new TextEncoder();
 class AZCredentials {
     private accountName: string;
     private accountKey: Uint8Array;
+    private service: string;
 
-    public constructor(accountName: string, accountKey: string) {
+    public constructor(accountName: string, accountKey: string, service: string) {
         this.accountName = accountName;
+        this.service = service;
 
         // Base64 decoding the account key and parsing that string into a byte array.
         const binaryString = atob(accountKey);
@@ -28,57 +30,99 @@ class AZCredentials {
     public getAccountKey(): Uint8Array {
         return this.accountKey;
     }
+
+    public getService(): string {
+        return this.service;
+    }
 }
 
 export async function handler(request: Request, res: ResponseBuilder) {
-    let accountName = Variables.get("az_account_name")!;
-    let sharedKey = Variables.get("az_shared_key")!; 
-    let endpoint = Variables.get("az_host")!;
-    let url = urlParse(request.url);
-    let uriPath = url.path!;
-    let queryString = url.query!;
-    
-    if (queryString.length == 0) {
-        if (uriPath == "/") {
+    try {
+        let accountName = Variables.get("az_account_name")!;
+        let sharedKey = Variables.get("az_shared_key")!; 
+
+        let service = request.headers.get("x-az-service");
+        if (service == null) {
             res.status(200);
             res.set({"content-type": "text/plain"});
-            res.send("Error: If you are not including a query string, you must have a more specific URI path (i.e. /containerName/path/to/object)");
+            res.send("Error: You must include the x-az-service in the request.");
             return;
-        } else {
-            endpoint += uriPath; 
         }
-    } else {
-        endpoint += uriPath + "?" + queryString;
+
+        let url = urlParse(request.url);
+        let uriPath = url.path!;
+        let queryString = url.query!;
+        let queryParams: {[key: string]: string} = {};
+        let endpoint = `https://${accountName}.${service}.core.windows.net`
+        
+        if (!queryString) {
+            if (uriPath == "/") {
+                res.status(200);
+                res.set({"content-type": "text/plain"});
+                res.send("Error: If you are not including a query string, you must have a more specific URI path (i.e. /containerName/path/to/object)");
+                return;
+            } else {
+                endpoint += uriPath; 
+            }
+        } else {
+            queryParams = parseQueryParams(queryString);
+            let paramKeys = Object.keys(queryParams);
+            let parsedQueryArray: string[] = [];
+            for (let key of paramKeys) {
+                parsedQueryArray.push(`${key}=${queryParams[key]}`);
+            }
+
+            endpoint += uriPath + "?" + parsedQueryArray.join("&");
+        }
+
+        try {
+            let body: Uint8Array = utf8.encode(await request.text());
+            let response = await sendAzureRequest(request.method, endpoint, queryParams, body, new Date(), accountName, sharedKey, service);
+        
+            res.status(response.status);
+            res.set(response.headers);
+            res.send(await response.arrayBuffer());
+        
+        } catch (error) {
+            res.status(500);
+            res.set({ 'content-type': 'text/plain' });
+            res.send(`Error: ${error}\n`);
+        }
+    } catch(error) {
+        res.status(500);
+        res.set({ 'content-type': 'text/plain' });
+        res.send(`Error: ${error}\n`);
+    }
+    
+  }
+
+  function parseQueryParams(queryString: string): {[key: string]: string} {
+    let queryParams: {[key: string]: string} = {};
+    let pairs = queryString.split("&");
+
+    for (let pair of pairs) {
+        // Handling cases where there is a "=" in the value portion of the param
+        let [key, ...valueParts] = pair.split("=");
+        let value = valueParts.join("=");
+
+        queryParams[key] = (value || "");
     }
 
-    try {
-      let body: Uint8Array = utf8.encode(await request.text());
-      let response = await sendAzureRequest(request.method, endpoint, body, new Date(), accountName, sharedKey);
-  
-      res.status(response.status);
-      res.set(response.headers);
-      res.send(await response.arrayBuffer());
-      
-    } catch (error) {
-      res.status(500);
-      res.set({ 'Content-Type': 'text/plain' });
-      res.send(`Error: ${error}\n`);
-    }
-  }
+    return queryParams; 
+}
 
 async function computeHMACSHA256(c: AZCredentials, message: Uint8Array): Promise<string> {
     let cryptoKey = await crypto.subtle.importKey("raw", c.getAccountKey(), {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
     let signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
-      // Convert ArrayBuffer to Uint8Array
-      let signatureArray = new Uint8Array(signature);
+    let signatureArray = new Uint8Array(signature);
+    let binaryString = String.fromCharCode(...signatureArray);
 
-      // Convert Uint8Array to binary string
-      let binaryString = String.fromCharCode(...signatureArray);
     // Base64 encoding the signature
     return btoa(binaryString);
 }
 
-function buildStringToSign(c: AZCredentials, method: string, url: string, headers: {[key: string]: string}): string {
+function buildStringToSign(c: AZCredentials, method: string, urlPath: string, headers: {[key: string]: string}, queryParams: {[key: string]: string}): string {
+    // Returns a blank value if the header value doesn't exist
     let getHeader = function (key: string, headers: {[key: string]: string}): string {
         if (headers == undefined) {
             return "";
@@ -89,31 +133,30 @@ function buildStringToSign(c: AZCredentials, method: string, url: string, header
         return "";
     }
 
-    let contentLength = getHeader("Content-Length", headers);
+    // Per the documentation, the Content-Length field must be an empty string if the content length of the request is zero.
+    let contentLength = getHeader("content-length", headers);
     if (contentLength == "0") {
         contentLength = ""
     }
 
-    let canonicalizedResource =  buildCanonicalizedResource(c, url);
+    let canonicalizedResource =  buildCanonicalizedResource(c, urlPath, queryParams);
 
     let stringToSign = [
         method,
-        getHeader("Content-Encoding", headers),
-        getHeader("Content-Language", headers),
+        getHeader("content-encoding", headers),
+        getHeader("content-language", headers),
         contentLength,
-        getHeader("Content-MD5", headers),
-        getHeader("Content-Type", headers),
+        getHeader("content-md5", headers),
+        getHeader("content-type", headers),
         "", // Empty date because x-ms-date is expected
-		getHeader("If-Modified-Since", headers),
-		getHeader("If-Match", headers),
-		getHeader("If-None-Match", headers),
-		getHeader("If-Unmodified-Since", headers),
-		getHeader("Range", headers),
+		getHeader("if-modified-since", headers),
+		getHeader("if-match", headers),
+		getHeader("if-none-match", headers),
+		getHeader("if-unmodified-since", headers),
+		getHeader("range", headers),
 		buildCanonicalizedHeader(headers),
 		canonicalizedResource
     ].join("\n");
-
-    console.log(`STRING TO SIGN:\n${stringToSign}`)
 
     return stringToSign
 }
@@ -134,7 +177,7 @@ function buildCanonicalizedHeader(headers: {[key: string]: string}): string {
     for (let key of Object.keys(cm)) {
         keys.push(key);
     }
-    keys.sort();
+    keys.sort(); // Canonicalized headers must be in lexicographical order
 
     let ch = "";
     for (let i = 0; i < keys.length; i++) {
@@ -148,44 +191,38 @@ function buildCanonicalizedHeader(headers: {[key: string]: string}): string {
     return ch;
 }
 
-function buildCanonicalizedResource(c: AZCredentials, url: string): string {
-    let u = urlParse(url);
-    let cr = "/";
-    cr += c.getAccountName();
-    cr += u.path!;
+function buildCanonicalizedResource(c: AZCredentials, urlPath: string, queryParams: {[key: string]: string}): string {
+    let cr = "/" + c.getAccountName() + urlPath;
 
-    let makeParamMap = function(acc: {[key: string]: string}, entry: string): {[key: string]: string}{
-        let [key, value]: string[] = entry.split("=");
-        acc[key] = value;
-        return acc;
-    }
-    
-    let params = u.query!.split("&").reduce(makeParamMap, {});
-    let paramNames: string[] = Object.keys(params)
-
+    let paramNames: string[] = Object.keys(queryParams)
     paramNames.sort();
 
     for (let paramName of paramNames) {
-        let paramValue = params[paramName]
+        let paramValue = queryParams[paramName]
         cr += `\n${paramName.toLowerCase()}:${paramValue}`;
     }
 
     return cr;
 }
 
-async function sendAzureRequest(method: string, url: string, body: Uint8Array, now: Date, accountName: string, sharedKey: string): Promise<Response>{
-    let cred = new AZCredentials(accountName, sharedKey);
+async function sendAzureRequest(method: string, url: string, queryParams: {[key: string]: string}, body: Uint8Array, now: Date, accountName: string, sharedKey: string, service: string): Promise<Response>{
+    let cred = new AZCredentials(accountName, sharedKey, service);
     let headers: {[key: string]: string} = {};
 
+    // Setting universally required headers
     headers["x-ms-date"] = now.toUTCString();
-    headers["x-ms-version"] = "2020-10-02";
+    headers["x-ms-version"] = "2024-08-04"; // Although not technically required, we strongly recommend specifying the latest Azure Storage API version: https://learn.microsoft.com/en-us/rest/api/storageservices/versioning-for-the-azure-storage-services
 
+    // Setting method and service-specific headers
     if (["PUT", "POST"].includes(method)) {
-        headers["content-length"] = `${body.length}`
-        headers["x-ms-blob-type"] = "BlockBlob";
+        headers["content-length"] = `${body.length}`;
+
+        if (service == "blob") {
+            headers["x-ms-blob-type"] = "BlockBlob";
+        }
     }
 
-    let stringToSign = buildStringToSign(cred, method, url, headers);
+    let stringToSign = buildStringToSign(cred, method, urlParse(url).path!, headers, queryParams);
     let signature = await computeHMACSHA256(cred, utf8.encode(stringToSign));
     let authHeader = `SharedKey ${accountName}:${signature}`;
     

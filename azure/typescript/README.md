@@ -11,9 +11,7 @@ At the moment, Spin does not have support for the Azure SDK. The current workaro
 
 ## Usage
 
-This example will show how to interact with Azure Blob Storage. See Azure's [documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services. 
-
-Keep in mind: The code examples below are for Linux, so be sure to adjust them according to your operating system.
+This example will show how to interact with Azure Blob Storage and Azure Queue Storage. See Azure's [documentation](https://learn.microsoft.com/en-us/rest/api/azure/) for API information on other Azure services. 
 
 ### Export environment variables
 
@@ -47,23 +45,74 @@ While the Spin app is running, open a new terminal window and try running the co
 #### List blobs:
 
 ```bash
-curl "http://127.0.0.1:3000/container-name?restype=container&comp=list"
+curl \
+    -H 'x-az-service: blob' \
+    "http://127.0.0.1:3000/container-name?restype=container&comp=list"
 ```
 
 #### Get blob:
 
 ```bash
-curl -o file_name.extension "http://127.0.0.1:3000/container-name/path/to/your/blob"
+curl \
+    -o file_name.extension \
+    -H 'x-az-service: blob' \
+    http://127.0.0.1:3000/container-name/path/to/your/blob
 ```
 
 #### Delete blob:
 
 ```bash
-curl --request DELETE "http://127.0.0.1:3000/container-name/path/to/your/blob"
+curl \
+    --request DELETE \
+    -H 'x-az-service: blob' \
+    http://127.0.0.1:3000/container-name/path/to/your/blob
 ```
 
 #### Place blob:
 
 ```bash
-curl --request PUT --data-binary @/path/to/file "http://127.0.0.1:3000/container-name/path/to/your/blob"
+curl \
+    --request PUT \
+    -H 'x-az-service: blob' \
+    --data-binary @/path/to/file \
+    http://127.0.0.1:3000/container-name/path/to/your/blob
+```
+
+#### List queues:
+
+```bash
+curl \
+    -H 'x-az-service: queue' \
+    "http://127.0.0.1:3000?comp=list"
+```
+#### Get queue messages:
+
+```bash
+curl \
+    -H 'x-az-service: queue' \
+    http://127.0.0.1:3000/your-queue-name/messages
+```
+
+#### Delete queue message:
+
+```bash
+# The message-id and pop-receipt string values can be retrieved via getting messages from the queue.
+curl \
+    --request DELETE \
+    -H 'x-az-service: queue' \
+    "http://127.0.0.1:3000/your-queue-name/messages/your-message-id?popreceipt=your-pop-receipt-value"
+```
+
+#### Place queue message: 
+
+```bash
+# Per their documentation, the request body needs to be formatted using the XML as follows:
+# <QueueMessage>
+#   <MessageText>YourMessageHere</MessageText>
+# </QueueMessage>
+curl \
+    --request POST \
+    -H 'x-az-service: queue' \
+    --data-binary @path/to/your/xml/message \
+    http://127.0.0.1:3000/your-queue-name/messages
 ```

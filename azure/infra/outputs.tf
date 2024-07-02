@@ -10,3 +10,7 @@ output "storage_account_name" {
 output "container_name" {
   value = azurerm_storage_container.demo.name
 }
+
+output "queue_name" {
+  value = azurerm_storage_queue.demo.name
+}

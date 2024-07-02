@@ -17,7 +17,11 @@ component = "typescript-azure"
 [component.typescript-azure]
 source = "target/typescript.wasm"
 exclude_files = ["**/node_modules"]
-allowed_outbound_hosts = ["https://{{ az_account_name }}.blob.core.windows.net", "http://localhost:8080"]
+allowed_outbound_hosts = [
+    "https://{{ az_account_name }}.blob.core.windows.net", 
+    "https://{{ az_account_name }}.queue.core.windows.net",
+    "http://localhost:8080"
+]
 
 [component.typescript-azure.build]
 command = "npm run build"
@@ -26,5 +30,5 @@ watch = ["src/**/*.ts", "package.json"]
 [component.typescript-azure.variables]
 az_account_name = "{{ az_account_name }}"
 az_shared_key = "{{ az_shared_key }}"
-az_host = "https://{{ az_account_name }}.blob.core.windows.net"
+# az_host = "https://{{ az_account_name }}.blob.core.windows.net"
 # az_host = "http://localhost:8080"

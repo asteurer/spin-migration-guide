@@ -16,7 +16,10 @@ component = "python-azure"
 
 [component.python-azure]
 source = "main.wasm"
-allowed_outbound_hosts = ["https://{{ az_account_name }}.blob.core.windows.net", "http://localhost:8080"]
+allowed_outbound_hosts = [
+    "https://{{ az_account_name }}.blob.core.windows.net",
+    "https://{{ az_account_name }}.queue.core.windows.net",
+]
 
 [component.python-azure.build]
 command = "componentize-py -w spin-http componentize main -o main.wasm"

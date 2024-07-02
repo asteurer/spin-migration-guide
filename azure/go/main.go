@@ -18,13 +18,13 @@ import (
 )
 
 type AZCredentials struct {
-	accountName string
-	accountKey  []byte
+	AccountName string
+	AccountKey  []byte
+	Service     string
 }
 
 func init() {
 	spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
-		// Retrieving Spin variables
 		accountName, err := variables.Get("az_account_name")
 		if err != nil {
 			http.Error(w, "Error retrieving Azure account name", http.StatusInternalServerError)
@@ -37,25 +37,25 @@ func init() {
 			return
 		}
 
-		host := r.Header.Get("x-az-host")
-		if host == "" {
-			http.Error(w, "ERROR: You must include the x-az-host header in your request", http.StatusBadRequest)
+		service := r.Header.Get("x-az-service")
+		if service == "" {
+			http.Error(w, "ERROR: You must include the 'x-az-service' header in your request", http.StatusBadRequest)
 			return
 		}
 
 		uriPath := r.URL.Path
 		queryString := r.URL.RawQuery
-		var endpoint string
+		endpoint := fmt.Sprintf("https://%s.%s.core.windows.net", accountName, service)
 
 		if len(queryString) == 0 {
 			if uriPath == "/" {
 				http.Error(w, fmt.Sprint("If you are not including a query string, you must have a more specific URI path (i.e. /containerName/path/to/object)"), http.StatusBadRequest)
 				return
 			} else {
-				endpoint = host + uriPath
+				endpoint += uriPath
 			}
 		} else {
-			endpoint = host + uriPath + "?" + queryString
+			endpoint += uriPath + "?" + queryString
 		}
 
 		now := time.Now().UTC()
@@ -69,14 +69,9 @@ func init() {
 
 		req, _ := http.NewRequest(r.Method, endpoint, bytes.NewReader(bodyData))
 
-		resp, err := sendAzureRequest(req, now, accountName, sharedKey)
+		resp, err := sendAzureRequest(req, now, accountName, sharedKey, service)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to execute outbound http request: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			http.Error(w, fmt.Sprintf("Response from outbound http request is not OK %v", resp.Status), http.StatusInternalServerError)
 			return
 		}
 
@@ -86,6 +81,11 @@ func init() {
 			return
 		}
 		resp.Body.Close()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			http.Error(w, fmt.Sprintf("Response from outbound http request is not OK:\n%v\n%v", resp.Status, string(body)), http.StatusInternalServerError)
+			return
+		}
 
 		w.WriteHeader(resp.StatusCode)
 
@@ -97,21 +97,22 @@ func init() {
 	})
 }
 
-func parseAZCredentials(accountName string, accountKey string) (*AZCredentials, error) {
+func parseAZCredentials(accountName, accountKey, service string) (*AZCredentials, error) {
 	decodedKey, err := base64.StdEncoding.DecodeString(accountKey)
 	if err != nil {
 		return nil, fmt.Errorf("Decode account key: %w", err)
 	}
-	return &AZCredentials{accountName: accountName, accountKey: decodedKey}, nil
+	return &AZCredentials{AccountName: accountName, AccountKey: decodedKey, Service: service}, nil
 }
 
 func computeHMACSHA256(c *AZCredentials, message string) (string, error) {
-	h := hmac.New(sha256.New, c.accountKey)
+	h := hmac.New(sha256.New, c.AccountKey)
 	_, err := h.Write([]byte(message))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), err
 }
 
 func buildStringToSign(c *AZCredentials, req *http.Request) (string, error) {
+	// Returns a blank value if the header value doesn't exist
 	getHeader := func(key string, headers http.Header) string {
 		if headers == nil {
 			return ""
@@ -125,6 +126,8 @@ func buildStringToSign(c *AZCredentials, req *http.Request) (string, error) {
 	}
 
 	headers := req.Header
+
+	// Per the documentation, the Content-Length field must be an empty string if the content length of the request is zero.
 	contentLength := getHeader("Content-Length", headers)
 	if contentLength == "0" {
 		contentLength = ""
@@ -152,7 +155,6 @@ func buildStringToSign(c *AZCredentials, req *http.Request) (string, error) {
 		canonicalizedResource,
 	}, "\n")
 
-	fmt.Println("STRING TO SIGN:\n" + stringToSign)
 	return stringToSign, nil
 }
 
@@ -161,7 +163,7 @@ func buildCanonicalizedHeader(headers http.Header) string {
 	for k, v := range headers {
 		headerName := strings.TrimSpace(strings.ToLower(k))
 		if strings.HasPrefix(headerName, "x-ms-") {
-			cm[headerName] = v // NOTE: the value must not have any whitespace around it.
+			cm[headerName] = v
 		}
 	}
 	if len(cm) == 0 {
@@ -188,7 +190,7 @@ func buildCanonicalizedHeader(headers http.Header) string {
 
 func buildCanonicalizedResource(c *AZCredentials, u *url.URL) (string, error) {
 	cr := bytes.NewBufferString("/")
-	cr.WriteString(c.accountName)
+	cr.WriteString(c.AccountName)
 
 	if len(u.Path) > 0 {
 		cr.WriteString(u.EscapedPath())
@@ -218,8 +220,8 @@ func buildCanonicalizedResource(c *AZCredentials, u *url.URL) (string, error) {
 	return cr.String(), nil
 }
 
-func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey string) (*http.Response, error) {
-	cred, err := parseAZCredentials(accountName, sharedKey)
+func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey, service string) (*http.Response, error) {
+	cred, err := parseAZCredentials(accountName, sharedKey, service)
 	if err != nil {
 		fmt.Println("Error creating credential:", err)
 		return nil, err
@@ -227,12 +229,15 @@ func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey s
 
 	// Setting universally required headers
 	req.Header.Set("x-ms-date", now.Format(http.TimeFormat))
-	req.Header.Set("x-ms-version", "2020-10-02")
+	req.Header.Set("x-ms-version", "2024-08-04") // Although not technically required, we strongly recommend specifying the latest Azure Storage API version: https://learn.microsoft.com/en-us/rest/api/storageservices/versioning-for-the-azure-storage-services
 
-	// Setting method-specific headers
+	// Setting method and service-specific headers
 	if req.Method == "PUT" || req.Method == "POST" {
 		req.Header.Set("content-length", fmt.Sprintf("%d", req.ContentLength))
-		req.Header.Set("x-ms-blob-type", "BlockBlob")
+
+		if service == "blob" {
+			req.Header.Set("x-ms-blob-type", "BlockBlob")
+		}
 	}
 
 	stringToSign, err := buildStringToSign(cred, req)
@@ -248,8 +253,6 @@ func sendAzureRequest(req *http.Request, now time.Time, accountName, sharedKey s
 	}
 	authHeader := fmt.Sprintf("SharedKey %s:%s", accountName, signature)
 	req.Header.Set("authorization", authHeader)
-
-	fmt.Println(req)
 
 	return spinhttp.Send(req)
 }

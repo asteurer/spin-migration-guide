@@ -46,7 +46,7 @@ While the Spin app is running, open a new terminal window and try running the co
 
 ```bash
 curl \
-    -H 'x-az-host: http://your-account-name.blob.core.windows.net' \
+    -H 'x-az-service: blob' \
     "http://127.0.0.1:3000/container-name?restype=container&comp=list"
 ```
 
@@ -55,8 +55,8 @@ curl \
 ```bash
 curl \
     -o file_name.extension \
-    -H 'x-az-host: http://your-account-name.blob.core.windows.net' \
-    "http://127.0.0.1:3000/container-name/path/to/your/blob"
+    -H 'x-az-service: blob' \
+    http://127.0.0.1:3000/container-name/path/to/your/blob
 ```
 
 #### Delete blob:
@@ -64,8 +64,8 @@ curl \
 ```bash
 curl \
     --request DELETE \
-    -H 'x-az-host: http://your-account-name.blob.core.windows.net' \
-    "http://127.0.0.1:3000/container-name/path/to/your/blob"
+    -H 'x-az-service: blob' \
+    http://127.0.0.1:3000/container-name/path/to/your/blob
 ```
 
 #### Place blob:
@@ -73,24 +73,24 @@ curl \
 ```bash
 curl \
     --request PUT \
-    -H 'x-az-host: http://your-account-name.blob.core.windows.net' \
+    -H 'x-az-service: blob' \
     --data-binary @/path/to/file \
-    "http://127.0.0.1:3000/container-name/path/to/your/blob"
+    http://127.0.0.1:3000/container-name/path/to/your/blob
 ```
 
 #### List queues:
 
 ```bash
 curl \
-    -H 'x-az-host: http://your-account-name.queue.core.windows.net' \
-    "locahost:3000?comp=list"
+    -H 'x-az-service: queue' \
+    "http://127.0.0.1:3000?comp=list"
 ```
 #### Get queue messages:
 
 ```bash
 curl \
-    -H 'x-az-host: http://your-account-name.queue.core.windows.net' \
-    locahost:3000/your-queue-name/messages
+    -H 'x-az-service: queue' \
+    http://127.0.0.1:3000/your-queue-name/messages
 ```
 
 #### Delete queue message:
@@ -99,20 +99,20 @@ curl \
 # The message-id and pop-receipt string values can be retrieved via getting messages from the queue.
 curl \
     --request DELETE \
-    -H 'x-az-host: http://your-account-name.queue.core.windows.net' \
-    "localhost:3000/your-queue-name/messages/your-message-id?popreceipt=your-pop-receipt-value"
+    -H 'x-az-service: queue' \
+    "http://127.0.0.1:3000/your-queue-name/messages/your-message-id?popreceipt=your-pop-receipt-value"
 ```
 
 #### Place queue message: 
 
 ```bash
-# Per their documentation, the request body needs to be formatted like the following XML:
+# Per their documentation, the request body needs to be formatted using the XML as follows:
 # <QueueMessage>
 #   <MessageText>YourMessageHere</MessageText>
 # </QueueMessage>
 curl \
     --request POST \
-    -H 'x-az-host: http://your-account-name.queue.core.windows.net' \
+    -H 'x-az-service: queue' \
     --data-binary @path/to/your/xml/message \
-    localhost:3000/your-queue-name/messages
+    http://127.0.0.1:3000/your-queue-name/messages
 ```
