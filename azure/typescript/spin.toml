@@ -20,7 +20,6 @@ exclude_files = ["**/node_modules"]
 allowed_outbound_hosts = [
     "https://{{ az_account_name }}.blob.core.windows.net", 
     "https://{{ az_account_name }}.queue.core.windows.net",
-    "http://localhost:8080"
 ]
 
 [component.typescript-azure.build]
